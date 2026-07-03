@@ -82,7 +82,7 @@ window.signInWithEmail = async function() {
   hideAuthMessages();
   if (!email || !password) { showAuthError('Please enter both email and password.'); return; }
   
-  if (btn) { btn.disabled = true; btn.textContent = 'Signing in...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Signing in...'; }
   
   const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
   
@@ -103,7 +103,7 @@ window.registerWithEmail = async function() {
   if (!name || !email || !password) { showAuthError('Please fill in all fields.'); return; }
   if (password.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
 
-  if (btn) { btn.disabled = true; btn.textContent = 'Creating account...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Creating account...'; }
 
   const { data, error } = await supabaseClient.auth.signUp({
     email,
@@ -140,7 +140,7 @@ window.verifyOtp = async function() {
   if (!code || code.length < 6) { showAuthError('Please enter the 6-digit OTP.'); return; }
   if (!email) { showAuthError('Email missing. Please go back and re-enter your details.'); return; }
 
-  if (btn) { btn.disabled = true; btn.textContent = 'Verifying...'; }
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Verifying...'; }
 
   const { data, error } = await supabaseClient.auth.verifyOtp({
     email: email,

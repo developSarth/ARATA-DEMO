@@ -323,8 +323,8 @@
       const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
       const statusColor = agent.status === 'online' ? '#10B981' : '#6B7280';
       
-      const item = document.createElement('button');
-      item.className = 'w-full flex items-center gap-3 p-3 hover:bg-surface-container-high transition-colors text-left';
+      const item = document.createElement('div');
+      item.className = 'w-full flex items-center gap-3 p-3 text-left border-b border-white/5 last:border-0';
       item.innerHTML = `
         <div class="w-6 h-6 rounded-full bg-surface-container-highest flex items-center justify-center font-bold text-[10px] text-on-surface shrink-0">${initials}</div>
         <div class="flex-1 min-w-0">
@@ -332,14 +332,6 @@
         </div>
         <span class="w-2 h-2 rounded-full shrink-0" style="background: ${statusColor}"></span>
       `;
-      item.onclick = () => {
-        // Just viewing, not assigning — update display
-        const agentNameEl = document.getElementById('agent-name');
-        const agentAvatarEl = document.getElementById('agent-avatar');
-        if (agentNameEl) agentNameEl.textContent = name;
-        if (agentAvatarEl) agentAvatarEl.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(name) + '&background=random';
-        dropdown.classList.remove('open');
-      };
       dropdown.appendChild(item);
     });
   }
@@ -355,7 +347,28 @@
   // Utility
   function escapeHtml(str) {
     if (!str) return '';
-    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+    return str.replace(/[&<>'"]/g, 
+      tag => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        "'": '&#39;',
+        '"': '&quot;'
+      }[tag] || tag)
+    );
+  }
+
+  function parseMarkdown(text) {
+    let html = escapeHtml(text || '');
+    // Bold
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Italic
+    html = html.replace(/_(.*?)_/g, '<em>$1</em>');
+    // Embedded Base64 Images ![alt](data:image...)
+    html = html.replace(/!\[([^\]]*)\]\((data:image\/[^;]+;base64,[a-zA-Z0-9+/=]+)\)/g, '<img src="$2" alt="$1" class="max-w-full rounded-lg mt-2 shadow-md border border-white/10">');
+    // Newlines
+    html = html.replace(/\n/g, '<br>');
+    return html;
   }
   function formatTime(isoString) {
     if (!isoString) return '';
@@ -371,6 +384,17 @@
     const parts = name.split(' ');
     if (parts.length > 1) return (parts[0][0] + parts[1][0]).toUpperCase();
     return parts[0][0].toUpperCase();
+  }
+
+  function getLastUpdateTime(esc) {
+    try {
+      const history = JSON.parse(esc.chat_history || '[]');
+      if (history.length > 0) {
+        const lastMsg = history[history.length - 1];
+        if (lastMsg.timestamp) return new Date(lastMsg.timestamp).getTime();
+      }
+    } catch(e) {}
+    return new Date(esc.created_at || 0).getTime();
   }
 
   // Fetch
@@ -429,12 +453,23 @@
       });
     }
 
-    // Apply sort by name
+    // Apply sort by last update time (most recent first by default)
     filtered.sort((a, b) => {
-      const nameA = (a.user_name || 'Visitor').toLowerCase();
-      const nameB = (b.user_name || 'Visitor').toLowerCase();
-      return sortOrder === 'asc' ? nameA.localeCompare(nameB) : nameB.localeCompare(nameA);
+      const timeA = getLastUpdateTime(a);
+      const timeB = getLastUpdateTime(b);
+      return sortOrder === 'asc' ? timeA - timeB : timeB - timeA;
     });
+
+    if (filtered.length === 0) {
+      convListEl.innerHTML = `
+        <div class="flex flex-col items-center justify-center p-8 text-center mt-10">
+          <span class="material-symbols-outlined text-[40px] text-white/20 mb-3">done_all</span>
+          <p class="font-headline-sm text-white/70 mb-1">You're all caught up!</p>
+          <p class="font-body-sm text-white/40">No conversations in this view.</p>
+        </div>
+      `;
+      return;
+    }
 
     filtered.forEach(esc => {
       const isActive = esc.conversation_id === selectedConvId;
@@ -499,8 +534,39 @@
   }
 
   // ─── Delete Conversation ───
+  async function confirmModal() {
+    return new Promise((resolve) => {
+      const backdrop = document.getElementById('nw-confirm-backdrop');
+      const modal = document.getElementById('nw-confirm-modal');
+      const btnOk = document.getElementById('nw-confirm-ok');
+      const btnCancel = document.getElementById('nw-confirm-cancel');
+
+      backdrop.classList.remove('hidden');
+      modal.classList.remove('hidden');
+      setTimeout(() => {
+        modal.classList.remove('scale-95', 'opacity-0');
+        modal.classList.add('scale-100', 'opacity-100');
+      }, 10);
+
+      const cleanup = () => {
+        modal.classList.remove('scale-100', 'opacity-100');
+        modal.classList.add('scale-95', 'opacity-0');
+        setTimeout(() => {
+          backdrop.classList.add('hidden');
+          modal.classList.add('hidden');
+        }, 200);
+        btnOk.onclick = null;
+        btnCancel.onclick = null;
+      };
+
+      btnOk.onclick = () => { cleanup(); resolve(true); };
+      btnCancel.onclick = () => { cleanup(); resolve(false); };
+    });
+  }
+
   async function deleteConversation(convId) {
-    if (!confirm('Permanently delete this conversation? This action cannot be undone.')) return;
+    const confirmed = await confirmModal();
+    if (!confirmed) return;
 
     // Delete child records first (agent_replies)
     await dbDelete('agent_replies', 'conversation_id', convId);
@@ -570,7 +636,7 @@
     input.value = '';
     send.disabled = true;
     
-    input.oninput = () => { send.disabled = !input.value.trim(); };
+    input.oninput = () => { send.disabled = !input.value.trim() && !currentAttachedImage; };
     input.onkeydown = (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -609,7 +675,7 @@
         div.innerHTML = `
           <div class="flex flex-col gap-1 items-end w-full">
             <div class="bg-primary-container text-[#ffffff] font-body-sm text-body-sm p-4 rounded-2xl rounded-tr-sm shadow-sm flex flex-col gap-3">
-              <p>${escapeHtml(msg.text || '').replace(/\n/g, '<br>')}</p>
+              <p>${parseMarkdown(msg.text)}</p>
             </div>
             <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
               <span>${time}</span>
@@ -623,7 +689,7 @@
           <div class="w-6 h-6 rounded-full shrink-0 self-end mb-5 bg-surface-container-highest flex items-center justify-center font-bold text-[10px] text-on-surface">${getInitials(esc.user_name)}</div>
           <div class="flex flex-col gap-1 items-start w-full">
             <div class="bg-surface-container-highest text-on-surface font-body-sm text-body-sm p-4 rounded-2xl rounded-tl-sm shadow-sm flex flex-col gap-3">
-              <p>${escapeHtml(msg.text || '').replace(/\n/g, '<br>')}</p>
+              <p>${parseMarkdown(msg.text)}</p>
             </div>
             <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
               <span>${time}</span>
@@ -665,7 +731,7 @@
       div.innerHTML = `
         <div class="flex flex-col gap-1 items-end w-full">
           <div class="bg-primary-container text-[#ffffff] font-body-sm text-body-sm p-4 rounded-2xl rounded-tr-sm shadow-sm flex flex-col gap-3">
-            <p>${escapeHtml(reply.message || '').replace(/\n/g, '<br>')}</p>
+            <p>${parseMarkdown(reply.message)}</p>
           </div>
           <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
             <span>${formatTime(reply.created_at)}</span>
@@ -694,7 +760,7 @@
       const noteEl = document.createElement('div');
       noteEl.className = 'p-2.5 rounded-lg bg-[#2a2615] border border-[#5b4300]/50 flex flex-col gap-1';
       noteEl.innerHTML = `
-        <p class="font-body-sm text-tertiary-fixed">${escapeHtml(note.message).replace(/\n/g, '<br>')}</p>
+        <p class="font-body-sm text-tertiary-fixed">${parseMarkdown(note.message)}</p>
         <span class="font-label-xs text-on-surface-variant">${formatTime(note.created_at)}</span>
       `;
       notesContainer.appendChild(noteEl);
@@ -738,8 +804,18 @@
   }
 
   async function sendAgentReply(convId, inputEl, msgContainer) {
-    const text = inputEl.value.trim();
-    if (!text) return;
+    let text = inputEl.value.trim();
+    if (!text && !currentAttachedImage) return;
+    
+    if (currentAttachedImage) {
+      text = text ? text + `\n\n![Attached Image](${currentAttachedImage})` : `![Attached Image](${currentAttachedImage})`;
+      currentAttachedImage = null;
+      if (fileLabel) {
+        fileLabel.classList.remove('text-primary');
+        fileLabel.title = 'Attach file';
+      }
+      if (fileInput) fileInput.value = '';
+    }
     inputEl.value = '';
     document.getElementById('nw-agent-send').disabled = true;
     
@@ -752,7 +828,7 @@
     div.innerHTML = `
       <div class="flex flex-col gap-1 items-end w-full">
         <div class="bg-primary-container text-[#ffffff] font-body-sm text-body-sm p-4 rounded-2xl rounded-tr-sm shadow-sm flex flex-col gap-3">
-          <p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>
+          <p>${parseMarkdown(text)}</p>
         </div>
         <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
           <span>Just now</span>
@@ -874,6 +950,7 @@
     const { data: { session } } = await supabaseClient.auth.getSession();
     const loginScreen = document.getElementById('login-screen');
     const appScreen = document.getElementById('helpdesk-app');
+    const loadingScreen = document.getElementById('loading-screen');
     
     if (session) {
       if (loginScreen) {
@@ -924,12 +1001,21 @@
       if (!pollInterval) {
         pollInterval = setInterval(fetchEscalations, 5000);
       }
+      
+      if (loadingScreen) {
+        loadingScreen.classList.add('opacity-0');
+        setTimeout(() => loadingScreen.remove(), 300);
+      }
     } else {
       if (loginScreen) {
           loginScreen.style.display = 'flex';
       }
       if (appScreen) {
           appScreen.style.display = 'none';
+      }
+      if (loadingScreen) {
+        loadingScreen.classList.add('opacity-0');
+        setTimeout(() => loadingScreen.remove(), 300);
       }
     }
   }
@@ -942,3 +1028,31 @@
 
   // Init auth check
   checkAuth();
+
+  // ─── Image Attachment ───
+  let currentAttachedImage = null;
+  const fileInput = document.getElementById('nw-file-input');
+  const fileLabel = fileInput ? fileInput.parentElement : null;
+  
+  if (fileInput) {
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        currentAttachedImage = event.target.result;
+        if (fileLabel) {
+          fileLabel.classList.add('text-primary');
+          fileLabel.classList.remove('text-white/70');
+          fileLabel.title = 'Image attached: ' + file.name;
+        }
+        const sendBtn = document.getElementById('nw-agent-send');
+        if (sendBtn) sendBtn.disabled = false;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
