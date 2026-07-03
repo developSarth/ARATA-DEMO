@@ -137,7 +137,7 @@ window.verifyOtp = async function() {
   const btn = document.getElementById('btn-verify-otp');
 
   hideAuthMessages();
-  if (!code || code.length < 6) { showAuthError('Please enter the 6-digit OTP.'); return; }
+  if (!code || code.length < 8) { showAuthError('Please enter the 8-digit OTP.'); return; }
   if (!email) { showAuthError('Email missing. Please go back and re-enter your details.'); return; }
 
   if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Verifying...'; }

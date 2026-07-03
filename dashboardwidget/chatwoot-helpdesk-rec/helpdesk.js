@@ -388,8 +388,8 @@
 
   function getLastUpdateTime(esc) {
     try {
-      const history = JSON.parse(esc.chat_history || '[]');
-      if (history.length > 0) {
+      const history = typeof esc.chat_history === 'string' ? JSON.parse(esc.chat_history || '[]') : (esc.chat_history || []);
+      if (Array.isArray(history) && history.length > 0) {
         const lastMsg = history[history.length - 1];
         if (lastMsg.timestamp) return new Date(lastMsg.timestamp).getTime();
       }
@@ -405,7 +405,7 @@
     const newData = data || [];
     
     // Smart diff: only re-render if data actually changed
-    const newHash = JSON.stringify(newData.map(e => e.conversation_id + '|' + e.status + '|' + (e.chat_history || '').length + '|' + (e.user_name || '')));
+    const newHash = JSON.stringify(newData.map(e => e.conversation_id + '|' + e.status + '|' + (e.chat_history || '').length + '|' + (e.user_name || '') + '|' + (e.user_email || '')));
     if (newHash === lastEscalationsHash) return; // No change — skip re-render
     lastEscalationsHash = newHash;
     
