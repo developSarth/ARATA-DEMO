@@ -257,7 +257,7 @@
   container.innerHTML = widgetHtml;
   document.body.appendChild(container);
 
-  const WEBHOOK_URL = 'https://developsarth.app.n8n.cloud/webhook/chatbot';
+  const WEBHOOK_URL = '/api/chat';
 
   // ── Supabase Config ──
   const SUPABASE_URL = 'https://kzjvawxuubhhvodhmppt.supabase.co';
