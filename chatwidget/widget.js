@@ -257,7 +257,11 @@
   container.innerHTML = widgetHtml;
   document.body.appendChild(container);
 
-  const WEBHOOK_URL = '/api/chat';
+  // IMPORTANT: Since this is an embeddable widget, it MUST use an absolute URL, 
+  // otherwise it will try to call /api/chat on the client's website!
+  const WEBHOOK_URL = 'https://93960379.arata-demo.pages.dev/api/chat'; 
+  // NOTE: Once chat.nodewave.co is fully active, you can change the above to:
+  // const WEBHOOK_URL = 'https://chat.nodewave.co/api/chat';
 
   // ── Supabase Config ──
   const SUPABASE_URL = 'https://kzjvawxuubhhvodhmppt.supabase.co';
