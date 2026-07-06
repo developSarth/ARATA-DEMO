@@ -304,6 +304,86 @@
     if (dropdown) dropdown.classList.toggle('open');
   };
 
+  // ─── Labels ───
+  window.addLabelToConversation = async function() {
+    if (!selectedConvId) return;
+    const input = document.getElementById('nw-label-input');
+    if (!input) return;
+    
+    const newLabel = input.value.trim();
+    if (!newLabel) return;
+    
+    const esc = escalations.find(e => e.conversation_id === selectedConvId);
+    if (!esc) return;
+    
+    let labels = esc.labels || [];
+    if (!Array.isArray(labels)) {
+      try { labels = JSON.parse(labels); } catch(e) { labels = []; }
+    }
+    
+    if (!labels.includes(newLabel)) {
+      labels.push(newLabel);
+      esc.labels = labels; // Optimistic update
+      renderLabels(esc);
+      renderSidebar();
+      
+      
+      try {
+        await dbUpdate('escalations', 'conversation_id', selectedConvId, { labels });
+      } catch (e) {
+        alert("Failed to add label: " + e.message);
+      }
+    }
+    
+    input.value = '';
+  };
+
+  window.removeLabel = async function(labelToRemove) {
+    if (!selectedConvId) return;
+    const esc = escalations.find(e => e.conversation_id === selectedConvId);
+    if (!esc) return;
+    
+    let labels = esc.labels || [];
+    if (!Array.isArray(labels)) {
+      try { labels = JSON.parse(labels); } catch(e) { labels = []; }
+    }
+    
+    labels = labels.filter(l => l !== labelToRemove);
+    esc.labels = labels; // Optimistic update
+    renderLabels(esc);
+    renderSidebar();
+    
+    
+    try {
+      await dbUpdate('escalations', 'conversation_id', selectedConvId, { labels });
+    } catch (e) {
+      alert("Failed to remove label: " + e.message);
+    }
+  };
+
+  function renderLabels(esc) {
+    const container = document.getElementById('nw-labels-container');
+    if (!container) return;
+    
+    let labels = esc.labels || [];
+    if (!Array.isArray(labels)) {
+      try { labels = JSON.parse(labels); } catch(e) { labels = []; }
+    }
+    
+    container.innerHTML = '';
+    labels.forEach(label => {
+      const chip = document.createElement('div');
+      chip.className = 'px-2 py-1 rounded bg-white/10 text-white font-label-sm text-[11px] flex items-center gap-1 border border-white/5';
+      chip.innerHTML = `
+        <span>${escapeHtml(label)}</span>
+        <button onclick="removeLabel('${escapeHtml(label)}')" class="hover:text-red-400 opacity-60 hover:opacity-100 transition-opacity ml-1 flex items-center justify-center">
+          <span class="material-symbols-outlined text-[14px]">close</span>
+        </button>
+      `;
+      container.appendChild(chip);
+    });
+  }
+
   // Close dropdown when clicking outside
   document.addEventListener('click', (e) => {
     const dropdown = document.getElementById('agent-dropdown-list');
@@ -314,7 +394,7 @@
   });
 
   async function fetchAgents() {
-    agentsList = await dbSelect('agents', 'id,name,email,status', {}, { column: 'created_at', ascending: true });
+    agentsList = await dbSelect('agents', 'id,name,email,status,role', {}, { column: 'created_at', ascending: true });
     renderAgentDropdown();
   }
 
@@ -347,7 +427,8 @@
       document.getElementById('agent-dropdown-list').classList.remove('open');
       await fetchEscalations(); // Background refresh
     } catch (err) {
-      alert("Failed to assign ticket: " + err.message);
+      console.error("Internal Database Error during assignment:", err);
+      alert("Failed to assign ticket. Please try again or contact an administrator.");
     }
   }
 
@@ -501,6 +582,13 @@
         if ((esc.user_name || '').toLowerCase().includes(q)) return true;
         if ((esc.user_email || '').toLowerCase().includes(q)) return true;
         if ((esc.last_user_message || '').toLowerCase().includes(q)) return true;
+        
+        let labels = esc.labels || [];
+        if (!Array.isArray(labels)) {
+          try { labels = JSON.parse(labels); } catch(e) { labels = []; }
+        }
+        if (labels.some(l => l.toLowerCase().includes(q))) return true;
+
         // Deep search inside chat_history
         try {
           const history = JSON.parse(esc.chat_history || '[]');
@@ -546,6 +634,15 @@
       // Delete button only for resolved chats
       const deleteBtn = (esc.status === 'resolved' && currentAgentRole === 'admin') ? `<button class="nw-delete-btn p-1 rounded hover:bg-error-container/30 text-on-surface-variant hover:text-error transition-colors shrink-0" title="Delete permanently" data-conv-id="${esc.conversation_id}"><span class="material-symbols-outlined text-[16px]">delete</span></button>` : '';
 
+      let labelsHtml = '';
+      let labels = esc.labels || [];
+      if (!Array.isArray(labels)) {
+        try { labels = JSON.parse(labels); } catch(e) { labels = []; }
+      }
+      labels.forEach(label => {
+        labelsHtml += `<span class="px-2 py-0.5 rounded border border-outline-variant font-label-xs text-label-xs text-on-surface bg-surface-container-highest">${escapeHtml(label)}</span>`;
+      });
+
       const div = document.createElement('div');
       div.className = 'p-4 border-b border-outline-variant transition-colors cursor-pointer ' + activeClass;
       div.innerHTML = `
@@ -564,6 +661,7 @@
             <p class="font-body-sm text-body-sm text-on-surface-variant truncate mb-2">${escapeHtml(esc.last_user_message || 'New conversation')}</p>
             <div class="flex gap-1.5 flex-wrap">
               ${statusBadge}
+              ${labelsHtml}
             </div>
           </div>
         </div>
@@ -686,6 +784,17 @@
     if (elContactName) elContactName.textContent = displayName;
     if (elContactEmail) elContactEmail.textContent = displayEmail || '—';
 
+    // Render Labels
+    renderLabels(esc);
+    
+    // Attach Enter key for label input
+    const labelInput = document.getElementById('nw-label-input');
+    if (labelInput) {
+      labelInput.onkeydown = (e) => {
+        if (e.key === 'Enter') addLabelToConversation();
+      };
+    }
+
     // Update assigned agent UI
     updateAssigneeUI(esc.assigned_agent_id);
 
@@ -736,7 +845,14 @@
     }, 100);
 
     // Load private notes for this conversation
-    loadPrivateNotes(esc.conversation_id);
+    if (currentAgentRole !== 'admin') {
+      document.getElementById('nw-private-notes-panel').style.display = 'block';
+      document.getElementById('nw-tab-private').style.display = 'block';
+      loadPrivateNotes(esc.conversation_id);
+    } else {
+      document.getElementById('nw-private-notes-panel').style.display = 'none';
+      document.getElementById('nw-tab-private').style.display = 'none';
+    }
 
     const input = document.getElementById('nw-agent-input');
     const send = document.getElementById('nw-agent-send');
@@ -866,6 +982,8 @@
 
   // ─── Private Notes ───
   async function loadPrivateNotes(convId) {
+    if (currentAgentRole === 'admin') return; // Admins cannot view private notes
+    
     const notesContainer = document.getElementById('nw-private-notes-list');
     if (!notesContainer) return;
     
@@ -1382,6 +1500,54 @@
       content.classList.remove('scale-95');
       content.classList.add('scale-100');
     }, 10);
+  };
+
+  // ─── Teams Directory Modal ───
+  window.openTeamsModal = function() {
+    const listEl = document.getElementById('nw-teams-list');
+    if (!listEl) return;
+    
+    listEl.innerHTML = '';
+    agentsList.forEach(agent => {
+      const avatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(agent.name || agent.email)}&background=random`;
+      
+      const adminBadge = agent.role === 'admin' 
+        ? `<span class="ml-2 px-1.5 py-0.5 rounded bg-primary/20 text-primary text-[9px] uppercase font-bold tracking-widest border border-primary/30">Admin</span>` 
+        : '';
+        
+      listEl.innerHTML += `
+        <div class="flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/10">
+           <div class="flex items-center gap-3">
+             <img src="${avatar}" class="w-10 h-10 rounded-full object-cover shadow-sm" />
+             <div>
+               <p class="font-label-md text-white font-bold flex items-center">${escapeHtml(agent.name || 'Unnamed Agent')} ${adminBadge}</p>
+               <p class="font-body-sm text-white/60">${escapeHtml(agent.email)}</p>
+             </div>
+           </div>
+           <div class="px-3 py-1 rounded bg-white/10 font-label-xs text-white/80 uppercase tracking-widest">${escapeHtml(agent.status || 'Active')}</div>
+        </div>
+      `;
+    });
+    
+    const modal = document.getElementById('nw-teams-modal');
+    const content = document.getElementById('nw-teams-modal-content');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    setTimeout(() => {
+      modal.classList.remove('opacity-0');
+      content.classList.remove('scale-95');
+    }, 10);
+  };
+
+  window.closeTeamsModal = function() {
+    const modal = document.getElementById('nw-teams-modal');
+    const content = document.getElementById('nw-teams-modal-content');
+    modal.classList.add('opacity-0');
+    content.classList.add('scale-95');
+    setTimeout(() => {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }, 300);
   };
 
   window.closeKBModal = function() {

@@ -276,17 +276,9 @@
                 <span class="material-symbols-outlined">menu_book</span>
                 <span class="nav-label text-sm font-medium">Knowledge Base</span>
             </button>
-            <button aria-label="Analytics" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
-                <span class="material-symbols-outlined">analytics</span>
-                <span class="nav-label text-sm font-medium">Analytics</span>
-            </button>
-            <button aria-label="Contacts" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
+            <button aria-label="Teams" onclick="openTeamsModal()" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
                 <span class="material-symbols-outlined">group</span>
-                <span class="nav-label text-sm font-medium">Contacts</span>
-            </button>
-            <button aria-label="Settings" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
-                <span class="material-symbols-outlined">settings</span>
-                <span class="nav-label text-sm font-medium">Settings</span>
+                <span class="nav-label text-sm font-medium">Teams</span>
             </button>
         </div>
         <div class="flex flex-col items-center gap-4 w-full px-3">
@@ -470,7 +462,7 @@
                 </div>
             </div>
 
-            <div class="p-6 flex-1">
+            <div id="nw-private-notes-panel" class="p-6 flex-1">
                 <h3 class="font-label-md text-white/70 mb-4 flex items-center gap-2 font-semibold">
                     <span class="material-symbols-outlined text-[16px] text-primary">lock</span> Private Notes
                 </h3>
@@ -592,6 +584,21 @@
                 <button onclick="closeKBModal()" class="px-4 py-2 rounded-xl text-white/70 hover:text-white hover:bg-white/5 font-label-md transition-colors">Cancel</button>
                 <button onclick="saveKBEntry()" class="px-4 py-2 rounded-xl bg-primary text-on-primary hover:bg-primary/90 font-label-md font-semibold transition-colors">Save Rule</button>
             </div>
+        </div>
+    </div>
+</div>
+
+<!-- Teams Directory Modal -->
+<div id="nw-teams-modal" class="fixed inset-0 z-[200] hidden items-center justify-center bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300">
+    <div class="bg-[#0B453A] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform duration-300 flex flex-col max-h-[80vh]" id="nw-teams-modal-content">
+        <div class="flex justify-between items-center mb-4">
+            <h2 class="text-white font-headline-sm">Teams Directory</h2>
+            <button onclick="closeTeamsModal()" class="text-white/60 hover:text-white transition-colors">
+                <span class="material-symbols-outlined">close</span>
+            </button>
+        </div>
+        <div id="nw-teams-list" class="flex flex-col gap-2 overflow-y-auto pr-2 custom-scrollbar">
+            <!-- Dynamic agent list injected here -->
         </div>
     </div>
 </div>
