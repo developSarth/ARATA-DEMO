@@ -1056,3 +1056,304 @@
       reader.readAsDataURL(file);
     });
   }
+
+
+  // ═══════════════════════════════════════
+  // Resolve Conversation
+  // ═══════════════════════════════════════
+  async function resolveConversation(esc) {
+    const btnResolve = document.getElementById('nw-btn-resolve');
+    if (btnResolve) {
+      btnResolve.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span> Resolved';
+      btnResolve.classList.replace('bg-[#22C55E]', 'bg-[#10B981]');
+      btnResolve.disabled = true;
+    }
+
+    const agentId = currentAgentSession?.user?.id || null;
+    const agentName = currentAgentSession?.user?.user_metadata?.full_name || currentAgentSession?.user?.email || 'Agent';
+
+    await dbUpdate('escalations', 'conversation_id', esc.conversation_id, { 
+      status: 'resolved'
+    });
+    
+    // Optimistic UI Update: instantly change local memory to avoid database sync lag
+    const target = escalations.find(e => e.conversation_id === esc.conversation_id);
+    if (target) {
+      target.status = 'resolved';
+    }
+    
+    // Clear selection and switch to Resolved tab so user can see it moved there
+    selectedConvId = null;
+    const mainPanel = document.getElementById('nw-main-panel');
+    const emptyState = document.getElementById('nw-empty-state');
+    if (mainPanel) mainPanel.classList.add('hidden');
+    if (emptyState) emptyState.classList.remove('hidden');
+    await fetchEscalations();
+    setTab('resolved');
+  }
+
+  // ═══════════════════════════════════════
+  // Delete Agent Message
+  // ═══════════════════════════════════════
+  async function deleteAgentMessage(replyId, convId, msgText = null, msgRole = 'agent') {
+    const confirmed = await confirmModal();
+    if (!confirmed) return;
+
+    if (msgRole === 'agent') {
+      if (replyId) {
+        // Delete from agent_replies table directly by ID
+        await dbDelete('agent_replies', 'id', replyId);
+      } else if (msgText) {
+        // Find the reply ID by matching the text and delete it
+        const replies = await dbSelect('agent_replies', '*', { conversation_id: convId });
+        const targetReply = replies.find(r => r.message.trim() === msgText.trim());
+        if (targetReply) {
+          await dbDelete('agent_replies', 'id', targetReply.id);
+        }
+      }
+    }
+
+    // Also remove from chat_history in escalations
+    const esc = escalations.find(e => e.conversation_id === convId);
+    if (esc) {
+      try {
+        let history = JSON.parse(esc.chat_history || '[]');
+        
+        if (msgText) {
+          // If we have msgText, simply filter it out directly
+          const targetText = msgText.trim();
+          history = history.filter(msg => !(msg.role === msgRole && (msg.text || '').trim() === targetText));
+        } else if (msgRole === 'agent') {
+          // Otherwise re-sync history with remaining DB replies
+          const replies = await dbSelect('agent_replies', '*', { conversation_id: convId, is_private: false }, { column: 'created_at', ascending: true });
+          const agentTexts = new Set(replies.map(r => (r.message || '').trim()));
+          history = history.filter(msg => {
+            if (msg.role === 'agent') return agentTexts.has((msg.text || '').trim());
+            return true;
+          });
+        }
+        
+        esc.chat_history = JSON.stringify(history);
+        await dbUpdate('escalations', 'conversation_id', convId, { chat_history: esc.chat_history });
+      } catch(e) { console.error('[Helpdesk] History cleanup error:', e); }
+
+      // Re-render the chat
+      const msgContainer = document.getElementById('nw-chat-messages');
+      if (msgContainer) {
+        renderMessagesHTML(msgContainer, esc);
+      }
+    }
+  }
+
+  // ═══════════════════════════════════════
+  // Collapsible Left Navigation
+  // ═══════════════════════════════════════
+  const navToggle = document.getElementById('nw-nav-toggle');
+  const navEl = document.getElementById('nw-nav');
+  const mainContainer = document.getElementById('nw-main-container');
+
+  if (navToggle && navEl && mainContainer) {
+    navToggle.addEventListener('click', () => {
+      const isExpanded = navEl.classList.toggle('expanded');
+      mainContainer.classList.toggle('nav-expanded', isExpanded);
+      const icon = document.getElementById('nw-nav-toggle-icon');
+      if (icon) icon.textContent = isExpanded ? 'chevron_left' : 'chevron_right';
+      // Update the label text
+      const label = navToggle.querySelector('.nav-label');
+      if (label) label.textContent = isExpanded ? 'Collapse' : 'Expand';
+    });
+  }
+
+  // ═══════════════════════════════════════
+  // Resizable Conversation Panel
+  // ═══════════════════════════════════════
+  const resizeHandle = document.getElementById('nw-resize-handle');
+  const listPane = document.querySelector('.golden-list');
+
+  if (resizeHandle && listPane && mainContainer) {
+    let isResizing = false;
+
+    resizeHandle.addEventListener('mousedown', (e) => {
+      isResizing = true;
+      resizeHandle.classList.add('active');
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      e.preventDefault();
+    });
+
+    document.addEventListener('mousemove', (e) => {
+      if (!isResizing) return;
+      const containerRect = mainContainer.getBoundingClientRect();
+      const newWidth = e.clientX - containerRect.left;
+      const minW = 220;
+      const maxW = containerRect.width * 0.5;
+      if (newWidth >= minW && newWidth <= maxW) {
+        listPane.style.width = newWidth + 'px';
+      }
+    });
+
+    document.addEventListener('mouseup', () => {
+      if (isResizing) {
+        isResizing = false;
+        resizeHandle.classList.remove('active');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        // Clear any accidental text selection from dragging
+        const sel = window.getSelection();
+        if (sel) sel.removeAllRanges();
+      }
+    });
+  }
+
+  // ═══════════════════════════════════════
+  // View Switching & Knowledge Base Logic
+  // ═══════════════════════════════════════
+
+  document.addEventListener('DOMContentLoaded', () => {
+    const navConv = document.getElementById('nav-btn-conversations');
+    const navKb = document.getElementById('nav-btn-kb');
+    if (navConv) navConv.addEventListener('click', () => switchAppView('conversations'));
+    if (navKb) navKb.addEventListener('click', () => switchAppView('kb'));
+  });
+
+  window.switchAppView = function(view) {
+    const mainCont = document.getElementById('nw-main-container');
+    const kbCont = document.getElementById('nw-kb-container');
+    const navConv = document.getElementById('nav-btn-conversations');
+    const navKb = document.getElementById('nav-btn-kb');
+    
+    if (view === 'kb') {
+      mainCont.style.display = 'none';
+      kbCont.style.display = 'flex';
+      navConv.classList.replace('bg-white/20', 'hover:bg-white/10');
+      navConv.classList.replace('text-white', 'text-white/60');
+      navKb.classList.replace('hover:bg-white/10', 'bg-white/20');
+      navKb.classList.replace('text-white/60', 'text-white');
+      fetchKnowledgeBase();
+    } else {
+      kbCont.style.display = 'none';
+      mainCont.style.display = 'flex';
+      navKb.classList.replace('bg-white/20', 'hover:bg-white/10');
+      navKb.classList.replace('text-white', 'text-white/60');
+      navConv.classList.replace('hover:bg-white/10', 'bg-white/20');
+      navConv.classList.replace('text-white/60', 'text-white');
+    }
+  };
+
+  // ─── Modal Controls ───
+  window.openKBModal = function() {
+    const modal = document.getElementById('kb-modal');
+    const content = document.getElementById('kb-modal-content');
+    document.getElementById('kb-topic-input').value = '';
+    document.getElementById('kb-content-input').value = '';
+    
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+    // small delay for transition
+    setTimeout(() => {
+      modal.classList.remove('opacity-0');
+      content.classList.remove('scale-95');
+      content.classList.add('scale-100');
+    }, 10);
+  };
+
+  window.closeKBModal = function() {
+    const modal = document.getElementById('kb-modal');
+    const content = document.getElementById('kb-modal-content');
+    
+    modal.classList.add('opacity-0');
+    content.classList.remove('scale-100');
+    content.classList.add('scale-95');
+    setTimeout(() => {
+      modal.classList.add('hidden');
+      modal.classList.remove('flex');
+    }, 300);
+  };
+
+  // ─── Fetch & Render ───
+  window.fetchKnowledgeBase = async function() {
+    const listEl = document.getElementById('nw-kb-list');
+    if (!listEl) return;
+    
+    try {
+      listEl.innerHTML = '<div class="text-white/50 text-center py-10 font-body-md">Loading rules...</div>';
+      const rules = await dbSelect('knowledge_base', '*', { is_active: true }, { column: 'created_at', ascending: false });
+      
+      if (!rules || rules.length === 0) {
+        listEl.innerHTML = `
+          <div class="flex flex-col items-center justify-center py-16 bg-white/5 rounded-2xl border border-white/5 border-dashed">
+            <span class="material-symbols-outlined text-[48px] text-white/30 mb-3">menu_book</span>
+            <h3 class="font-headline-sm text-white/70">No rules yet</h3>
+            <p class="font-body-md text-white/50 mb-4">Add a rule to guide the AI assistant's responses.</p>
+            <button onclick="openKBModal()" class="px-4 py-2 bg-primary/20 text-primary font-label-md rounded-xl hover:bg-primary/30 transition-colors">Add First Rule</button>
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = '';
+      rules.forEach(rule => {
+        const item = document.createElement('div');
+        item.className = 'bg-white/5 border border-white/10 rounded-2xl p-6 flex flex-col gap-3 group relative hover:bg-white/10 transition-colors';
+        
+        item.innerHTML = `
+          <div class="flex justify-between items-start gap-4">
+            <h3 class="font-headline-sm text-white">${escapeHtml(rule.topic)}</h3>
+            <button onclick="deleteKBEntry('${rule.id}')" class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-error/20 text-error/0 group-hover:text-error transition-all" title="Delete Rule">
+              <span class="material-symbols-outlined text-[20px]">delete</span>
+            </button>
+          </div>
+          <div class="font-body-md text-white/70 whitespace-pre-wrap">${escapeHtml(rule.content)}</div>
+          <div class="text-[10px] text-white/30 font-medium uppercase mt-2">Added ${new Date(rule.created_at).toLocaleDateString()}</div>
+        `;
+        listEl.appendChild(item);
+      });
+
+    } catch (err) {
+      console.error("Error fetching KB:", err);
+      listEl.innerHTML = '<div class="text-error text-center py-10 font-body-md">Failed to load rules.</div>';
+    }
+  };
+
+  // ─── Save Rule ───
+  window.saveKBEntry = async function() {
+    const topic = document.getElementById('kb-topic-input').value.trim();
+    const content = document.getElementById('kb-content-input').value.trim();
+    
+    if (!topic || !content) {
+      alert("Please fill in both topic and rule content.");
+      return;
+    }
+
+    try {
+      const data = await dbInsert('knowledge_base', {
+        topic: topic,
+        content: content,
+        is_active: true
+      });
+        
+      if (!data) throw new Error("Database insertion failed");
+      
+      closeKBModal();
+      fetchKnowledgeBase(); // Refresh list
+    } catch (err) {
+      console.error("Error saving KB:", err);
+      alert("Failed to save rule: " + err.message);
+    }
+  };
+
+  // ─── Delete Rule ───
+  window.deleteKBEntry = async function(id) {
+    if (!confirm("Are you sure you want to delete this rule? The AI will no longer follow it.")) return;
+    
+    try {
+      const success = await dbDelete('knowledge_base', 'id', id);
+        
+      if (!success) throw new Error("Database deletion failed");
+      
+      fetchKnowledgeBase(); // Refresh list
+    } catch (err) {
+      console.error("Error deleting KB rule:", err);
+      alert("Failed to delete rule: " + err.message);
+    }
+  };

@@ -81,6 +81,7 @@
                             "base": "4px"
                         },
                         "fontFamily": {
+                            "sans": ["Geist", "sans-serif"],
                             "label-md": ["Geist"],
                             "body-lg": ["Geist"],
                             "display": ["Geist"],
@@ -110,20 +111,24 @@
         } catch (_e) {}
 </script>
 <style>
+    *, *::before, *::after { font-family: 'Geist', sans-serif !important; }
+    .material-symbols-outlined { font-family: 'Material Symbols Outlined' !important; font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
     body { font-family: 'Geist', sans-serif; }
-    .golden-list { width: 23.6%; }
-    .golden-main { width: 52.8%; }
+    .golden-list { width: 23.6%; min-width: 220px; max-width: 50%; }
+    .golden-main { flex: 1; min-width: 300px; }
     .golden-aside { width: 23.6%; }
     .text-high-contrast { color: #ffffff; }
     .text-medium-contrast { color: #d1d5db; }
     .text-low-contrast { color: #9ca3af; }
+
+    /* Text selection styling */
+    ::selection { background: rgba(170,209,166,0.3); color: #fff; }
 
     /* Custom scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
-    .material-symbols-outlined { font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24; }
     
     /* Login Screen Tabs */
     .auth-tab-active { color: #aad1a6; border-bottom: 2px solid #aad1a6; font-weight: 600; }
@@ -162,9 +167,55 @@
     @keyframes profileSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
     .nw-profile-popup-backdrop { display: none; position: fixed; inset: 0; z-index: 99; }
     .nw-profile-popup-backdrop.open { display: block; }
+
+    /* ── Collapsible Nav ── */
+    .nw-nav { width: 72px; transition: width 0.25s cubic-bezier(0.4,0,0.2,1); overflow: hidden; }
+    .nw-nav.expanded { width: 240px; }
+    .nw-nav .nav-label { display: none; white-space: nowrap; opacity: 0; transition: opacity 0.15s ease; }
+    .nw-nav.expanded .nav-label { display: inline; opacity: 1; }
+    .nw-nav.expanded .nav-btn { justify-content: flex-start; padding-left: 16px; gap: 12px; }
+    .nw-main-container { margin-left: 72px; width: calc(100% - 72px); transition: margin-left 0.25s cubic-bezier(0.4,0,0.2,1), width 0.25s cubic-bezier(0.4,0,0.2,1); }
+    .nw-main-container.nav-expanded { margin-left: 240px; width: calc(100% - 240px); }
+
+    /* ── Resize Handle ── */
+    .nw-resize-handle {
+      width: 4px; cursor: col-resize; background: transparent;
+      transition: background 0.2s; flex-shrink: 0; position: relative; z-index: 10;
+    }
+    .nw-resize-handle:hover, .nw-resize-handle.active { background: rgba(170,209,166,0.4); }
+    .nw-resize-handle::after {
+      content: ''; position: absolute; top: 50%; left: 50%;
+      transform: translate(-50%, -50%); width: 2px; height: 24px;
+      border-radius: 2px; background: rgba(255,255,255,0.15);
+    }
+    .nw-resize-handle:hover::after, .nw-resize-handle.active::after { background: rgba(170,209,166,0.6); }
+
+    /* ── Contenteditable Rich Editor ── */
+    #nw-agent-input[contenteditable] {
+      min-height: 100px; padding: 20px; font-size: 14px; line-height: 20px;
+      color: rgba(255,255,255,0.9); outline: none; overflow-y: auto; max-height: 200px;
+    }
+    #nw-agent-input[contenteditable]:empty::before {
+      content: attr(data-placeholder); color: rgba(255,255,255,0.4); pointer-events: none;
+    }
+    #nw-agent-input[contenteditable] b, #nw-agent-input[contenteditable] strong { font-weight: 700; }
+    #nw-agent-input[contenteditable] i, #nw-agent-input[contenteditable] em { font-style: italic; }
+
+    /* ── Message Delete Button ── */
+    .nw-msg-wrapper { position: relative; }
+    .nw-msg-wrapper .nw-msg-delete {
+      position: absolute; top: 4px; right: 4px; opacity: 0;
+      width: 24px; height: 24px; border-radius: 6px;
+      background: rgba(255,0,0,0.15); border: 1px solid rgba(255,0,0,0.2);
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; transition: opacity 0.15s, background 0.15s;
+    }
+    .nw-msg-wrapper:hover .nw-msg-delete { opacity: 1; }
+    .nw-msg-wrapper .nw-msg-delete:hover { background: rgba(255,0,0,0.35); }
+    .nw-msg-wrapper .nw-msg-delete .material-symbols-outlined { font-size: 14px; color: #ffb4ab; }
 </style>
 </head>
-<body class="font-body-md h-screen w-full flex overflow-hidden selection:bg-primary selection:text-black bg-background text-on-surface">
+<body class="font-sans font-body-md h-screen w-full flex overflow-hidden bg-background text-on-surface">
 
 <!-- Loading Splash Screen -->
 <div id="loading-screen" class="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-[#021525] transition-opacity duration-300">
@@ -185,12 +236,7 @@
             <span class="font-display-sm font-bold text-2xl">A</span>
         </button>
         <h1 id="auth-title" class="font-headline-sm mb-2 text-on-surface">Agent Login</h1>
-        <p class="font-body-sm text-on-surface-variant text-center mb-4">Access the Nodewave Helpdesk</p>
-        
-        <div class="flex w-full mb-5 border-b border-white/10">
-            <button id="tab-login" onclick="switchAuthTab('login')" class="flex-1 pb-2 text-center font-label-md auth-tab-active">Login</button>
-            <button id="tab-register" onclick="switchAuthTab('register')" class="flex-1 pb-2 text-center font-label-md auth-tab-inactive">Register</button>
-        </div>
+        <p class="font-body-sm text-on-surface-variant text-center mb-6">Access the Nodewave Helpdesk</p>
         
         <p id="login-error" class="font-label-md text-error mb-4 hidden text-center w-full bg-error-container/20 p-2 rounded border border-error-container/50"></p>
         <p id="login-success" class="font-label-md text-[#10B981] mb-4 hidden text-center w-full bg-[#10B981]/10 p-2 rounded border border-[#10B981]/30"></p>
@@ -201,27 +247,6 @@
             <button id="btn-email-login" onclick="signInWithEmail()" class="w-full py-3 rounded-xl bg-primary hover:bg-primary/90 transition-all flex items-center justify-center font-label-md text-on-primary font-bold mb-4 shadow-md">
                 Sign In with Email
             </button>
-        </div>
-
-        <div id="form-register" class="w-full flex flex-col hidden">
-            <div id="register-step-details" class="flex flex-col w-full">
-                <input type="text" id="register-name" placeholder="Full Name" class="w-full p-3 mb-3 rounded-xl border border-white/10 bg-black/20 text-on-surface focus:border-primary focus:ring-1 focus:ring-primary font-body-sm outline-none transition-all placeholder:text-white/40">
-                <input type="email" id="register-email" placeholder="Email" class="w-full p-3 mb-3 rounded-xl border border-white/10 bg-black/20 text-on-surface focus:border-primary focus:ring-1 focus:ring-primary font-body-sm outline-none transition-all placeholder:text-white/40">
-                <input type="password" id="register-password" placeholder="Password (min 6 characters)" class="w-full p-3 mb-4 rounded-xl border border-white/10 bg-black/20 text-on-surface focus:border-primary focus:ring-1 focus:ring-primary font-body-sm outline-none transition-all placeholder:text-white/40">
-                <button id="btn-register" onclick="registerWithEmail()" class="w-full py-3 rounded-xl bg-primary hover:bg-primary/90 transition-all flex items-center justify-center font-label-md text-on-primary font-bold mb-4 shadow-md">
-                    Create Account
-                </button>
-            </div>
-            <div id="register-step-otp" class="flex flex-col w-full hidden">
-                <p class="font-body-sm text-on-surface-variant text-center mb-4">Check your email for the 8-digit confirmation code.</p>
-                <input type="text" id="otp-code" placeholder="Enter 8-digit OTP" maxlength="8" class="w-full p-3 mb-3 rounded-xl border border-white/10 bg-black/20 text-on-surface focus:border-primary focus:ring-1 focus:ring-primary font-body-sm outline-none transition-all text-center tracking-[0.5em] text-lg placeholder:text-white/40">
-                <button id="btn-verify-otp" onclick="verifyOtp()" class="w-full py-3 rounded-xl bg-primary hover:bg-primary/90 transition-all flex items-center justify-center font-label-md text-on-primary font-bold mb-3 shadow-md">
-                    Verify & Create Account
-                </button>
-                <button onclick="document.getElementById('register-step-otp').classList.add('hidden'); document.getElementById('register-step-details').classList.remove('hidden');" class="text-on-surface-variant font-label-xs text-center hover:text-primary transition-colors cursor-pointer mb-4">
-                    ← Back to Details
-                </button>
-            </div>
         </div>
         
         <div class="w-full flex items-center gap-3 mb-4">
@@ -239,25 +264,37 @@
 
 <div id="helpdesk-app" class="flex-1 w-full h-full flex" style="display: none;">
     <!-- Left Navigation Shell -->
-    <nav class="fixed left-0 top-0 h-full flex flex-col w-[72px] border-r border-white/5 z-20 py-6 items-center justify-between bg-[#0B453A]">
+    <nav id="nw-nav" class="nw-nav fixed left-0 top-0 h-full flex flex-col border-r border-white/5 z-20 py-6 items-center justify-between bg-[#0B453A]">
         <div class="flex flex-col items-center gap-6 w-full px-3">
             <div class="w-10 h-10 rounded-xl bg-[#aad1a6] flex items-center justify-center font-bold mb-2 cursor-pointer shadow-lg hover:scale-105 transition-transform">
                 <span class="font-display-sm font-bold text-[#163719] text-xl">A</span>
             </div>
-            <button aria-label="Conversations" class="w-full h-12 flex justify-center items-center group transition-all bg-white/20 rounded-xl text-white">
+            <button id="nav-btn-conversations" aria-label="Conversations" class="nav-btn w-full h-12 flex justify-center items-center group transition-all bg-white/20 rounded-xl text-white">
                 <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">chat_bubble</span>
+                <span class="nav-label text-sm font-medium">Conversations</span>
             </button>
-            <button aria-label="Analytics" class="w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
+            <button id="nav-btn-kb" aria-label="Knowledge Base" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
+                <span class="material-symbols-outlined">menu_book</span>
+                <span class="nav-label text-sm font-medium">Knowledge Base</span>
+            </button>
+            <button aria-label="Analytics" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
                 <span class="material-symbols-outlined">analytics</span>
+                <span class="nav-label text-sm font-medium">Analytics</span>
             </button>
-            <button aria-label="Contacts" class="w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
+            <button aria-label="Contacts" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
                 <span class="material-symbols-outlined">group</span>
+                <span class="nav-label text-sm font-medium">Contacts</span>
             </button>
-            <button aria-label="Settings" class="w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
+            <button aria-label="Settings" class="nav-btn w-full h-12 flex justify-center items-center text-white/60 hover:text-white hover:bg-white/10 rounded-xl transition-all group">
                 <span class="material-symbols-outlined">settings</span>
+                <span class="nav-label text-sm font-medium">Settings</span>
             </button>
         </div>
-        <div class="flex flex-col items-center gap-4 w-full">
+        <div class="flex flex-col items-center gap-4 w-full px-3">
+            <button id="nw-nav-toggle" class="nav-btn w-full h-10 flex justify-center items-center text-white/40 hover:text-white hover:bg-white/10 rounded-xl transition-all" title="Toggle sidebar">
+                <span id="nw-nav-toggle-icon" class="material-symbols-outlined text-[20px]">chevron_right</span>
+                <span class="nav-label text-sm font-medium">Collapse</span>
+            </button>
             <button id="nav-profile-btn" class="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-all border border-white/10 relative overflow-hidden">
                 <img id="nav-profile-avatar" alt="Agent Profile" class="absolute inset-0 w-full h-full object-cover hidden"/>
                 <span id="nav-profile-initial" class="font-label-md">SP</span>
@@ -266,7 +303,7 @@
     </nav>
 
     <!-- Main Container -->
-    <main class="ml-[72px] flex w-[calc(100%-72px)] h-full">
+    <main id="nw-main-container" class="nw-main-container flex h-full">
         <!-- Column 1: List Pane -->
         <section class="golden-list flex-shrink-0 flex flex-col h-full bg-[#011c06] border-r border-white/5">
             <div class="p-5 border-b border-white/5 flex flex-col gap-5">
@@ -290,6 +327,9 @@
                 <!-- Dynamically populated by JS -->
             </div>
         </section>
+
+        <!-- Resize Handle -->
+        <div id="nw-resize-handle" class="nw-resize-handle" title="Drag to resize"></div>
 
         <!-- Center Active Workspace Empty -->
         <div id="nw-empty-state" class="golden-main flex-shrink-0 flex flex-col items-center justify-center bg-black text-white/50 h-full">
@@ -348,7 +388,7 @@
                         <button id="nw-fmt-numbered" onclick="fmtLine('1. ')" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Numbered List"><span class="material-symbols-outlined text-[16px]">format_list_numbered</span></button>
                     </div>
 
-                    <textarea id="nw-agent-input" class="p-5 min-h-[100px] font-body-md text-white/90 bg-transparent border-none resize-none focus:ring-0 focus:outline-none placeholder:text-white/40" placeholder="Shift + enter for new line. Start with '/' for Canned Response."></textarea>
+                    <div id="nw-agent-input" contenteditable="true" class="font-body-md bg-transparent" data-placeholder="Shift + enter for new line. Start with '/' for Canned Response."></div>
                     
                     <div class="p-3 px-4 flex justify-between items-center bg-black/20 border-t border-white/5">
                         <div class="flex gap-2 text-white/70 relative">
@@ -419,18 +459,14 @@
 
             <div class="p-6 border-b border-white/5">
                 <h3 class="font-label-md text-white/70 mb-3 font-semibold">Labels</h3>
-                <div id="nw-labels-container" class="flex flex-wrap gap-2">
-                    <button onclick="addLabelToNote('ops-handover')" class="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 font-label-sm flex items-center gap-2 text-white/70 hover:text-white transition-colors cursor-pointer">
-                        <div class="w-1.5 h-1.5 rounded-full bg-white/40"></div>ops-handover
-                    </button>
-                    <button onclick="addLabelToNote('software')" class="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 font-label-sm flex items-center gap-2 text-white/70 hover:text-white transition-colors cursor-pointer">
-                        <div class="w-1.5 h-1.5 rounded-full bg-primary"></div>software
-                    </button>
-                    <button onclick="addLabelToNote('urgent')" class="px-3 py-1.5 rounded-lg bg-white/5 border border-[#E67E22]/40 font-label-sm flex items-center gap-2 text-white/70 hover:text-white transition-colors cursor-pointer">
-                        <div class="w-1.5 h-1.5 rounded-full bg-[#E67E22]"></div>urgent
-                    </button>
-                    <button onclick="addLabelToNote('follow-up')" class="px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 font-label-sm flex items-center gap-2 text-white/70 hover:text-white transition-colors cursor-pointer">
-                        <div class="w-1.5 h-1.5 rounded-full bg-[#10B981]"></div>follow-up
+                <div id="nw-labels-container" class="flex flex-wrap gap-2 mb-3">
+                    <!-- Dynamic label chips rendered by JS -->
+                </div>
+                <div class="flex gap-2">
+                    <input type="text" id="nw-label-input" placeholder="Add label..." maxlength="30"
+                        class="flex-1 px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 font-label-sm text-white placeholder:text-white/30 outline-none focus:border-primary transition-colors text-sm">
+                    <button id="nw-label-add-btn" onclick="addLabelToConversation()" class="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/30 font-label-sm text-primary hover:bg-primary/30 transition-colors cursor-pointer text-sm font-semibold">
+                        + Add
                     </button>
                 </div>
             </div>
@@ -515,6 +551,48 @@
         <div class="flex justify-end gap-3">
             <button id="nw-confirm-cancel" class="px-4 py-2 rounded-xl text-white/70 hover:bg-white/10 font-label-md transition-colors">Cancel</button>
             <button id="nw-confirm-ok" class="px-4 py-2 rounded-xl bg-[#ffb4ab] text-[#690005] font-label-md hover:brightness-110 shadow-lg transition-colors font-bold">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Knowledge Base Container -->
+<main id="nw-kb-container" class="nw-main-container flex h-full w-full" style="display: none;">
+    <section class="flex-1 flex flex-col h-full bg-[#011c06]">
+        <div class="p-8 border-b border-white/5 flex items-center justify-between">
+            <div>
+                <h1 class="font-headline-md text-white tracking-tight">Knowledge Base</h1>
+                <p class="font-body-sm text-on-surface-variant mt-1">Manage dynamic rules and guidelines for the AI assistant.</p>
+            </div>
+            <button onclick="openKBModal()" class="px-5 py-2.5 bg-primary text-on-primary font-label-md font-semibold rounded-xl hover:bg-primary/90 transition-colors flex items-center gap-2">
+                <span class="material-symbols-outlined text-[18px]">add</span>
+                Add Rule
+            </button>
+        </div>
+        <div class="flex-1 p-8 overflow-y-auto">
+            <div id="nw-kb-list" class="flex flex-col gap-4 max-w-5xl mx-auto">
+                <!-- Dynamically populated by JS -->
+            </div>
+        </div>
+    </section>
+</main>
+
+<!-- Add/Edit KB Modal -->
+<div id="kb-modal" class="fixed inset-0 z-[200] hidden items-center justify-center bg-black/60 backdrop-blur-sm opacity-0 transition-opacity duration-300">
+    <div class="bg-[#0B453A] border border-white/10 rounded-2xl p-6 w-full max-w-md shadow-2xl transform scale-95 transition-transform duration-300" id="kb-modal-content">
+        <h2 class="text-white font-headline-sm mb-4">Add Rule to Knowledge Base</h2>
+        <div class="flex flex-col gap-4">
+            <div>
+                <label class="block text-white/70 font-label-sm mb-1">Topic</label>
+                <input type="text" id="kb-topic-input" class="w-full h-11 px-3 rounded-xl bg-white/5 text-white font-body-md focus:outline-none focus:ring-1 focus:ring-white/20 border border-white/10" placeholder="e.g. Shipping Policy">
+            </div>
+            <div>
+                <label class="block text-white/70 font-label-sm mb-1">Rule Content</label>
+                <textarea id="kb-content-input" rows="4" class="w-full p-3 rounded-xl bg-white/5 text-white font-body-md focus:outline-none focus:ring-1 focus:ring-white/20 border border-white/10" placeholder="Explain the rule clearly..."></textarea>
+            </div>
+            <div class="flex justify-end gap-3 mt-2">
+                <button onclick="closeKBModal()" class="px-4 py-2 rounded-xl text-white/70 hover:text-white hover:bg-white/5 font-label-md transition-colors">Cancel</button>
+                <button onclick="saveKBEntry()" class="px-4 py-2 rounded-xl bg-primary text-on-primary hover:bg-primary/90 font-label-md font-semibold transition-colors">Save Rule</button>
+            </div>
         </div>
     </div>
 </div>

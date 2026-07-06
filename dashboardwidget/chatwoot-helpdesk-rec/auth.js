@@ -69,7 +69,7 @@ window.signInWithGoogle = async function() {
   await supabaseClient.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: window.location.origin + '/chatwoot-helpdesk-rec/Helpdesk-Final.html'
+      redirectTo: window.location.origin
     }
   });
 };
@@ -82,7 +82,7 @@ window.signInWithEmail = async function() {
   hideAuthMessages();
   if (!email || !password) { showAuthError('Please enter both email and password.'); return; }
   
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Signing in...'; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Signing in\u2026'; }
   
   const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
   
@@ -93,67 +93,9 @@ window.signInWithEmail = async function() {
   // If successful, onAuthStateChange in helpdesk.js will trigger checkAuth() automatically
 };
 
-window.registerWithEmail = async function() {
-  const name = document.getElementById('register-name').value.trim();
-  const email = document.getElementById('register-email').value.trim();
-  const password = document.getElementById('register-password').value;
-  const btn = document.getElementById('btn-register');
-
-  hideAuthMessages();
-  if (!name || !email || !password) { showAuthError('Please fill in all fields.'); return; }
-  if (password.length < 6) { showAuthError('Password must be at least 6 characters.'); return; }
-
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Creating account...'; }
-
-  const { data, error } = await supabaseClient.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: name }
-    }
-  });
-
-  if (error) {
-    showAuthError(error.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
-  } else {
-    if (data.user && data.user.identities && data.user.identities.length === 0) {
-      showAuthError('An account with this email already exists.');
-      if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
-    } else if (!data.session) {
-      // Email confirmation (OTP) required
-      showAuthSuccess('OTP sent to ' + email);
-      document.getElementById('register-step-details').classList.add('hidden');
-      document.getElementById('register-step-otp').classList.remove('hidden');
-      if (btn) { btn.disabled = false; btn.textContent = 'Create Account'; }
-    }
-    // If data.session exists, onAuthStateChange will trigger checkAuth() automatically
-  }
-};
-
-window.verifyOtp = async function() {
-  const email = document.getElementById('register-email').value.trim();
-  const code = document.getElementById('otp-code').value.trim();
-  const btn = document.getElementById('btn-verify-otp');
-
-  hideAuthMessages();
-  if (!code || code.length < 8) { showAuthError('Please enter the 8-digit OTP.'); return; }
-  if (!email) { showAuthError('Email missing. Please go back and re-enter your details.'); return; }
-
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="material-symbols-outlined animate-spin text-[18px] mr-2">progress_activity</span> Verifying...'; }
-
-  const { data, error } = await supabaseClient.auth.verifyOtp({
-    email: email,
-    token: code,
-    type: 'signup'
-  });
-
-  if (error) {
-    showAuthError(error.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Verify & Create Account'; }
-  }
-  // If successful, onAuthStateChange in helpdesk.js will trigger checkAuth() automatically
-};
+// §5 — Registration removed for security (agents are invited via Supabase Admin).
+// registerWithEmail() and verifyOtp() have been intentionally deleted.
+// New agents are added via Supabase Dashboard → Authentication → Users → Invite.
 
 window.signOut = async function() {
   const { data: { session } } = await supabaseClient.auth.getSession();
