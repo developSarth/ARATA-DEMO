@@ -190,16 +190,15 @@
     }
     .nw-resize-handle:hover::after, .nw-resize-handle.active::after { background: rgba(170,209,166,0.6); }
 
-    /* ── Contenteditable Rich Editor ── */
-    #nw-agent-input[contenteditable] {
+    /* ── Markdown Editor ── */
+    #nw-agent-input {
       min-height: 100px; padding: 20px; font-size: 14px; line-height: 20px;
       color: rgba(255,255,255,0.9); outline: none; overflow-y: auto; max-height: 200px;
+      resize: none; background: transparent; width: 100%; border: none;
     }
-    #nw-agent-input[contenteditable]:empty::before {
-      content: attr(data-placeholder); color: rgba(255,255,255,0.4); pointer-events: none;
+    #nw-agent-input::placeholder {
+      color: rgba(255,255,255,0.4);
     }
-    #nw-agent-input[contenteditable] b, #nw-agent-input[contenteditable] strong { font-weight: 700; }
-    #nw-agent-input[contenteditable] i, #nw-agent-input[contenteditable] em { font-style: italic; }
 
     /* ── Message Delete Button ── */
     .nw-msg-wrapper { position: relative; }
@@ -388,7 +387,7 @@
                         <button id="nw-fmt-numbered" onclick="fmtLine('1. ')" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Numbered List"><span class="material-symbols-outlined text-[16px]">format_list_numbered</span></button>
                     </div>
 
-                    <div id="nw-agent-input" contenteditable="true" class="font-body-md bg-transparent" data-placeholder="Shift + enter for new line. Start with '/' for Canned Response."></div>
+                    <textarea id="nw-agent-input" class="font-body-md" placeholder="Shift + enter for new line. Start with '/' for Canned Response."></textarea>
                     
                     <div class="p-3 px-4 flex justify-between items-center bg-black/20 border-t border-white/5">
                         <div class="flex gap-2 text-white/70 relative">

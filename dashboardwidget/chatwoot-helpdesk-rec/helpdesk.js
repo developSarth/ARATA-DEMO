@@ -14,6 +14,7 @@
   let searchQuery = '';
   let sortOrder = 'desc'; // 'asc' = A-Z, 'desc' = Z-A (default chronological)
   let currentAgentSession = null; // store session for profile popup
+  let currentAgentRole = 'agent'; // store role (admin or agent)
 
   // ─── Auth Tab Switching ───
   window.switchAuthTab = function(tab) {
@@ -290,8 +291,17 @@
 
   // ─── Agent Dropdown ───
   window.toggleAgentDropdown = function() {
+    if (!selectedConvId) return;
+    const esc = escalations.find(e => e.conversation_id === selectedConvId);
+    if (!esc) return;
+
+    if (currentAgentRole !== 'admin') {
+      alert("Only admins can assign or reassign tickets.");
+      return;
+    }
+
     const dropdown = document.getElementById('agent-dropdown-list');
-    dropdown.classList.toggle('open');
+    if (dropdown) dropdown.classList.toggle('open');
   };
 
   // Close dropdown when clicking outside
@@ -308,6 +318,39 @@
     renderAgentDropdown();
   }
 
+  async function assignTicket(agentId) {
+    if (!selectedConvId) return;
+    try {
+      // Optimistically update the UI to feel instant
+      updateAssigneeUI(agentId);
+      
+      const esc = escalations.find(e => e.conversation_id === selectedConvId);
+      let previousAgentId = null;
+      if (esc) {
+        previousAgentId = esc.assigned_agent_id;
+        esc.assigned_agent_id = agentId;
+      }
+      
+      const { error } = await supabaseClient.rpc('reassign_conversation', { 
+        conv_id: selectedConvId, 
+        new_agent_id: agentId 
+      });
+      if (error) {
+        // Revert optimistic update on error
+        if (esc) {
+          esc.assigned_agent_id = previousAgentId;
+          updateAssigneeUI(previousAgentId);
+        }
+        throw error;
+      }
+      
+      document.getElementById('agent-dropdown-list').classList.remove('open');
+      await fetchEscalations(); // Background refresh
+    } catch (err) {
+      alert("Failed to assign ticket: " + err.message);
+    }
+  }
+
   function renderAgentDropdown() {
     const dropdown = document.getElementById('agent-dropdown-list');
     if (!dropdown) return;
@@ -318,13 +361,25 @@
       return;
     }
 
-    agentsList.forEach(agent => {
+    // Unassign button (Admin only)
+    if (currentAgentRole === 'admin') {
+      const unassignItem = document.createElement('div');
+      unassignItem.className = 'w-full flex items-center gap-3 p-3 text-left border-b border-white/5 hover:bg-white/10 cursor-pointer text-white/70';
+      unassignItem.innerHTML = `<span class="font-body-sm text-on-surface truncate block italic">Unassign Ticket</span>`;
+      unassignItem.onclick = () => assignTicket(null);
+      dropdown.appendChild(unassignItem);
+    }
+
+    // If standard agent, they can only see themselves (to claim the ticket)
+    const availableAgents = currentAgentRole === 'admin' ? agentsList : agentsList.filter(a => a.id === currentAgentSession?.user?.id);
+
+    availableAgents.forEach(agent => {
       const name = agent.name || agent.email || 'Agent';
       const initials = name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
       const statusColor = agent.status === 'online' ? '#10B981' : '#6B7280';
       
       const item = document.createElement('div');
-      item.className = 'w-full flex items-center gap-3 p-3 text-left border-b border-white/5 last:border-0';
+      item.className = 'w-full flex items-center gap-3 p-3 text-left border-b border-white/5 last:border-0 hover:bg-white/10 cursor-pointer transition-colors';
       item.innerHTML = `
         <div class="w-6 h-6 rounded-full bg-surface-container-highest flex items-center justify-center font-bold text-[10px] text-on-surface shrink-0">${initials}</div>
         <div class="flex-1 min-w-0">
@@ -332,6 +387,7 @@
         </div>
         <span class="w-2 h-2 rounded-full shrink-0" style="background: ${statusColor}"></span>
       `;
+      item.onclick = () => assignTicket(agent.id);
       dropdown.appendChild(item);
     });
   }
@@ -488,7 +544,7 @@
       const displayName = esc.user_name && esc.user_name !== 'Website Visitor' ? esc.user_name : (esc.user_name || 'Visitor');
 
       // Delete button only for resolved chats
-      const deleteBtn = esc.status === 'resolved' ? `<button class="nw-delete-btn p-1 rounded hover:bg-error-container/30 text-on-surface-variant hover:text-error transition-colors shrink-0" title="Delete permanently" data-conv-id="${esc.conversation_id}"><span class="material-symbols-outlined text-[16px]">delete</span></button>` : '';
+      const deleteBtn = (esc.status === 'resolved' && currentAgentRole === 'admin') ? `<button class="nw-delete-btn p-1 rounded hover:bg-error-container/30 text-on-surface-variant hover:text-error transition-colors shrink-0" title="Delete permanently" data-conv-id="${esc.conversation_id}"><span class="material-symbols-outlined text-[16px]">delete</span></button>` : '';
 
       const div = document.createElement('div');
       div.className = 'p-4 border-b border-outline-variant transition-colors cursor-pointer ' + activeClass;
@@ -568,10 +624,18 @@
     const confirmed = await confirmModal();
     if (!confirmed) return;
 
-    // Delete child records first (agent_replies)
-    await dbDelete('agent_replies', 'conversation_id', convId);
-    // Delete the escalation record
-    await dbDelete('escalations', 'conversation_id', convId);
+    try {
+      const { error } = await supabaseClient.rpc('delete_conversation', { p_conversation_id: convId });
+      if (error) {
+        console.error('[NW-DB] Delete via RPC error:', error.message);
+        alert('Failed to delete: ' + error.message);
+        return;
+      }
+    } catch (err) {
+      console.error('[NW-DB] Delete via RPC failed:', err);
+      alert('Failed to delete conversation.');
+      return;
+    }
 
     // Clear the panel if this was the active chat
     if (selectedConvId === convId) {
@@ -582,6 +646,22 @@
 
     // Refresh
     await fetchEscalations();
+  }
+
+  function updateAssigneeUI(assignedAgentId) {
+    const elAgentName = document.getElementById('agent-name');
+    const elAgentAvatar = document.getElementById('agent-avatar');
+    if (elAgentName && elAgentAvatar) {
+      if (assignedAgentId) {
+        const assignedAgent = agentsList.find(a => a.id === assignedAgentId);
+        const name = assignedAgent ? (assignedAgent.name || assignedAgent.email) : 'Unknown Agent';
+        elAgentName.textContent = name;
+        elAgentAvatar.src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(name) + '&background=random';
+      } else {
+        elAgentName.textContent = 'Unassigned';
+        elAgentAvatar.src = 'https://ui-avatars.com/api/?name=U&background=random';
+      }
+    }
   }
 
   function renderChatPanel(esc) {
@@ -606,16 +686,46 @@
     if (elContactName) elContactName.textContent = displayName;
     if (elContactEmail) elContactEmail.textContent = displayEmail || '—';
 
+    // Update assigned agent UI
+    updateAssigneeUI(esc.assigned_agent_id);
+
+    const isOwner = currentAgentSession?.user?.id === esc.assigned_agent_id;
+    const isAdmin = currentAgentRole === 'admin';
+    const canReply = isAdmin || isOwner;
+
+    const trigger = document.getElementById('agent-dropdown-trigger');
+    const caret = trigger?.querySelector('.material-symbols-outlined');
+    if (trigger && caret) {
+      if (isAdmin) {
+        trigger.classList.add('cursor-pointer', 'hover:bg-white/10');
+        caret.style.display = 'block';
+      } else {
+        trigger.classList.remove('cursor-pointer', 'hover:bg-white/10');
+        caret.style.display = 'none';
+      }
+    }
+
     const btnResolve = document.getElementById('nw-btn-resolve');
     if (esc.status === 'resolved') {
       btnResolve.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span> Resolved';
       btnResolve.classList.replace('bg-[#22C55E]', 'bg-[#10B981]');
+      btnResolve.classList.remove('opacity-50', 'cursor-not-allowed');
       btnResolve.disabled = true;
+      btnResolve.title = '';
     } else {
       btnResolve.innerHTML = '<span class="material-symbols-outlined text-[18px]">check</span> Resolve';
       btnResolve.classList.replace('bg-[#10B981]', 'bg-[#22C55E]');
-      btnResolve.disabled = false;
-      btnResolve.onclick = () => resolveConversation(esc);
+      btnResolve.disabled = !canReply;
+      
+      if (!canReply) {
+        btnResolve.classList.add('opacity-50', 'cursor-not-allowed');
+        btnResolve.title = "Only the assigned agent can resolve this ticket.";
+        btnResolve.onclick = null;
+      } else {
+        btnResolve.classList.remove('opacity-50', 'cursor-not-allowed');
+        btnResolve.title = "";
+        btnResolve.onclick = () => resolveConversation(esc);
+      }
     }
 
     const msgContainer = document.getElementById('nw-chat-messages');
@@ -630,11 +740,22 @@
 
     const input = document.getElementById('nw-agent-input');
     const send = document.getElementById('nw-agent-send');
+    const composerBox = document.getElementById('nw-composer-box');
     
     // Reset composer to reply mode
     setComposerMode('reply');
     input.value = '';
     send.disabled = true;
+    
+    if (!canReply) {
+      input.disabled = true;
+      input.placeholder = esc.assigned_agent_id ? "Assigned to another agent." : "Claim this ticket to reply.";
+      composerBox.classList.add('opacity-50', 'pointer-events-none');
+    } else {
+      input.disabled = false;
+      input.placeholder = "Shift + enter for new line. Start with '/' for Canned Response.";
+      composerBox.classList.remove('opacity-50', 'pointer-events-none');
+    }
     
     input.oninput = () => { send.disabled = !input.value.trim() && !currentAttachedImage; };
     input.onkeydown = (e) => {
@@ -964,12 +1085,6 @@
       const agentName = session.user?.user_metadata?.full_name || session.user?.email || 'Agent';
       const avatarUrl = session.user?.user_metadata?.avatar_url || '';
       
-      // Update agent name in right panel
-      const elName = document.getElementById('agent-name');
-      const elAvatar = document.getElementById('agent-avatar');
-      if (elName) elName.textContent = agentName;
-      if (elAvatar) elAvatar.src = avatarUrl || 'https://ui-avatars.com/api/?name=' + encodeURIComponent(agentName) + '&background=random';
-      
       // Update nav profile (bottom left)
       const navAvatar = document.getElementById('nav-profile-avatar');
       const navInitial = document.getElementById('nav-profile-initial');
@@ -989,6 +1104,18 @@
         email: session.user.email || ''
       });
       
+      // Fetch actual role for RBAC
+      const agentRecord = await dbSelect('agents', 'role', { id: session.user.id });
+      if (agentRecord && agentRecord.length > 0) {
+        currentAgentRole = agentRecord[0].role || 'agent';
+      }
+      
+      // Hide Admin tabs if not admin
+      const navBtnKb = document.getElementById('nav-btn-kb');
+      if (navBtnKb) {
+        navBtnKb.style.display = currentAgentRole === 'admin' ? 'flex' : 'none';
+      }
+
       // Populate profile popup
       currentAgentSession = session;
       populateProfile(session);
