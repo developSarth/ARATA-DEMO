@@ -539,7 +539,15 @@
 
   async function fetchEscalations() {
     const data = await dbSelect('escalations', '*', {}, { column: 'created_at', ascending: false });
-    const newData = data || [];
+    
+    // Deduplicate by conversation_id (in case of missing PK constraints causing duplicate inserts)
+    const uniqueMap = new Map();
+    (data || []).forEach(e => {
+      if (!uniqueMap.has(e.conversation_id)) {
+        uniqueMap.set(e.conversation_id, e);
+      }
+    });
+    const newData = Array.from(uniqueMap.values());
     
     // Smart diff: only re-render if data actually changed
     const newHash = JSON.stringify(newData.map(e => e.conversation_id + '|' + e.status + '|' + (e.chat_history || '').length + '|' + (e.user_name || '') + '|' + (e.user_email || '')));
@@ -907,6 +915,8 @@
       
       const div = document.createElement('div');
       
+      const deleteBtnHTML = currentAgentRole === 'admin' ? `<button onclick="deleteConversationMessage('${esc.conversation_id}', false, '${msg.timestamp}')" class="text-white/30 hover:text-error transition-colors shrink-0" title="Delete Message"><span class="material-symbols-outlined text-[14px]">delete</span></button>` : '';
+      
       if (isAgent) {
         div.className = 'flex gap-2 max-w-[85%] self-end mt-4';
         div.innerHTML = `
@@ -915,6 +925,7 @@
               <p>${parseMarkdown(msg.text)}</p>
             </div>
             <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
+              ${deleteBtnHTML}
               <span>${time}</span>
             </div>
           </div>
@@ -930,6 +941,7 @@
             </div>
             <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
               <span>${time}</span>
+              ${deleteBtnHTML}
             </div>
           </div>
         `;
@@ -963,6 +975,8 @@
       // Skip if this message already exists in chat_history (prevents double-render)
       if (existingMsgs.has((reply.message || '').trim())) return;
       
+      const deleteBtnHTML = currentAgentRole === 'admin' ? `<button onclick="deleteConversationMessage('${convId}', true, '${reply.id}')" class="text-white/30 hover:text-error transition-colors shrink-0" title="Delete Message"><span class="material-symbols-outlined text-[14px]">delete</span></button>` : '';
+      
       const div = document.createElement('div');
       div.className = 'flex gap-2 max-w-[85%] self-end mt-4';
       div.innerHTML = `
@@ -971,6 +985,7 @@
             <p>${parseMarkdown(reply.message)}</p>
           </div>
           <div class="flex items-center gap-2 text-[10px] text-on-surface-variant font-label-xs">
+            ${deleteBtnHTML}
             <span>${formatTime(reply.created_at)}</span>
           </div>
         </div>
@@ -979,6 +994,88 @@
       msgContainer.appendChild(div);
     });
   }
+  
+  // ─── Delete Conversation Message ───
+  let pendingMessageDelete = null;
+
+  window.closeDeleteConfirmModal = function() {
+    const modal = document.getElementById('nw-delete-confirm-modal');
+    const content = document.getElementById('nw-delete-confirm-content');
+    if (!modal) return;
+    
+    content.classList.remove('scale-100');
+    content.classList.add('scale-95');
+    modal.classList.remove('opacity-100');
+    modal.classList.add('opacity-0');
+    
+    setTimeout(() => { 
+      modal.classList.add('hidden'); 
+      modal.classList.remove('flex'); 
+    }, 300);
+    
+    pendingMessageDelete = null;
+  };
+
+  window.deleteConversationMessage = function(convId, isAgentReply, identifier) {
+    if (currentAgentRole !== 'admin') return;
+    
+    pendingMessageDelete = { convId, isAgentReply, identifier };
+    
+    const modal = document.getElementById('nw-delete-confirm-modal');
+    const content = document.getElementById('nw-delete-confirm-content');
+    if (modal) {
+      modal.classList.remove('hidden');
+      modal.classList.add('flex');
+      // small delay for transition
+      setTimeout(() => {
+        modal.classList.remove('opacity-0');
+        modal.classList.add('opacity-100');
+        content.classList.remove('scale-95');
+        content.classList.add('scale-100');
+      }, 10);
+    }
+  };
+
+  window.executePendingDelete = async function() {
+    if (!pendingMessageDelete) return;
+    const { convId, isAgentReply, identifier } = pendingMessageDelete;
+    
+    closeDeleteConfirmModal();
+    
+    try {
+      if (isAgentReply) {
+        // Delete from agent_replies
+        const success = await dbDelete('agent_replies', 'id', identifier);
+        if (!success) throw new Error("Failed to delete agent reply. Check permissions.");
+      } else {
+        // Delete from chat_history in escalations
+        const esc = escalations.find(e => e.conversation_id === convId);
+        if (!esc) return;
+        
+        let history = [];
+        try { history = JSON.parse(esc.chat_history || '[]'); } catch(e) {}
+        
+        // Remove the specific message by matching its timestamp
+        const newHistory = history.filter(m => String(m.timestamp) !== String(identifier));
+        const updatedStr = JSON.stringify(newHistory);
+        
+        const updatedRow = await dbUpdate('escalations', 'conversation_id', convId, { chat_history: updatedStr });
+        if (!updatedRow) throw new Error("Failed to update chat history.");
+        
+        // Optimistically update local state
+        esc.chat_history = updatedStr;
+      }
+      
+      // Force re-render of messages instantly
+      const currentEsc = escalations.find(e => e.conversation_id === convId);
+      if (currentEsc) {
+        refreshMessagesOnly(currentEsc);
+      }
+    } catch (err) {
+      console.error("Error deleting message:", err);
+      alert("Failed to delete message: " + err.message);
+    }
+  };
 
   // ─── Private Notes ───
   async function loadPrivateNotes(convId) {
@@ -1622,7 +1719,8 @@
       const data = await dbInsert('knowledge_base', {
         topic: topic,
         content: content,
-        is_active: true
+        is_active: true,
+        added_by: currentAgentSession?.user?.id
       });
         
       if (!data) throw new Error("Database insertion failed");
@@ -1630,8 +1728,8 @@
       closeKBModal();
       fetchKnowledgeBase(); // Refresh list
     } catch (err) {
-      console.error("Error saving KB:", err);
-      alert("Failed to save rule: " + err.message);
+      console.error("Internal Database Error during KB save:", err);
+      alert("Failed to save rule. Please check if you have admin permissions or contact support.");
     }
   };
 
