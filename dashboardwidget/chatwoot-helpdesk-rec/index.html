@@ -340,13 +340,6 @@
                 </div>
                 <div class="flex items-center gap-4">
                     <button id="nw-btn-resolve" class="px-4 py-2 rounded-xl font-label-md flex items-center gap-2 cursor-pointer bg-white/5 text-white hover:bg-white/10 transition-colors border border-white/10">
-                        <span class="material-symbols-outlined text-[16px] text-primary">check</span>
-                        Resolve
-                    </button>
-                    <div class="flex items-center gap-2 text-on-surface-variant ml-4">
-                        <button class="w-10 h-10 flex items-center justify-center hover:text-white transition-colors rounded-full hover:bg-white/5"><span class="material-symbols-outlined">search</span></button>
-                        <button class="w-10 h-10 flex items-center justify-center hover:text-white transition-colors rounded-full hover:bg-white/5"><span class="material-symbols-outlined">notifications</span></button>
-                    </div>
                 </div>
             </header>
 
@@ -370,16 +363,18 @@
                     </div>
                     
                     <div class="flex items-center gap-1 px-4 py-1.5 border-b border-white/5 bg-black/10">
-                        <button id="nw-fmt-bold" onclick="fmtWrap('**','**')" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Bold"><span class="font-bold text-[14px]">B</span></button>
-                        <button id="nw-fmt-italic" onclick="fmtWrap('_','_')" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Italic"><span class="italic text-[14px] font-serif">I</span></button>
+                        <button id="nw-fmt-bold" onclick="document.execCommand('bold', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Bold"><span class="font-bold text-[14px]">B</span></button>
+                        <button id="nw-fmt-italic" onclick="document.execCommand('italic', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Italic"><span class="italic text-[14px] font-serif">I</span></button>
                         <div class="w-px h-4 bg-white/10 mx-1"></div>
-                        <button id="nw-fmt-link" onclick="fmtLink()" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Insert Link"><span class="material-symbols-outlined text-[16px]">link</span></button>
+                        <button id="nw-fmt-align-left" onclick="document.execCommand('justifyLeft', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Align Left"><span class="material-symbols-outlined text-[16px]">format_align_left</span></button>
+                        <button id="nw-fmt-align-center" onclick="document.execCommand('justifyCenter', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Align Center"><span class="material-symbols-outlined text-[16px]">format_align_center</span></button>
+                        <button id="nw-fmt-align-right" onclick="document.execCommand('justifyRight', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Align Right"><span class="material-symbols-outlined text-[16px]">format_align_right</span></button>
                         <div class="w-px h-4 bg-white/10 mx-1"></div>
-                        <button id="nw-fmt-bullet" onclick="fmtLine('- ')" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Bulleted List"><span class="material-symbols-outlined text-[16px]">format_list_bulleted</span></button>
-                        <button id="nw-fmt-numbered" onclick="fmtLine('1. ')" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Numbered List"><span class="material-symbols-outlined text-[16px]">format_list_numbered</span></button>
+                        <button id="nw-fmt-bullet" onclick="document.execCommand('insertUnorderedList', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Bulleted List"><span class="material-symbols-outlined text-[16px]">format_list_bulleted</span></button>
+                        <button id="nw-fmt-numbered" onclick="document.execCommand('insertOrderedList', false, null)" class="p-1 rounded text-white/50 hover:text-white hover:bg-white/5 transition-colors" title="Numbered List"><span class="material-symbols-outlined text-[16px]">format_list_numbered</span></button>
                     </div>
 
-                    <textarea id="nw-agent-input" class="font-body-md" placeholder="Shift + enter for new line. Start with '/' for Canned Response."></textarea>
+                    <div id="nw-agent-input" contenteditable="true" class="font-body-md" placeholder="Shift + enter for new line. Select text and click tools above to format."></div>
                     
                     <div class="p-3 px-4 flex justify-between items-center bg-black/20 border-t border-white/5">
                         <div class="flex gap-2 text-white/70 relative">

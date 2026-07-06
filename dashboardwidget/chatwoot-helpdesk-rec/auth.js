@@ -69,7 +69,7 @@ window.signInWithGoogle = async function() {
   await supabaseClient.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo: window.location.origin
+      redirectTo: window.location.href
     }
   });
 };

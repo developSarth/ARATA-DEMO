@@ -83,60 +83,6 @@
   };
 
   // ═══════════════════════════════════════
-  // Toolbar Formatting Functions
-  // ═══════════════════════════════════════
-  window.fmtWrap = function(before, after) {
-    const ta = document.getElementById('nw-agent-input');
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const text = ta.value;
-    const selected = text.substring(start, end);
-    const replacement = before + (selected || 'text') + after;
-    ta.value = text.substring(0, start) + replacement + text.substring(end);
-    // Position cursor inside the wrapping if nothing was selected
-    if (!selected) {
-      ta.selectionStart = start + before.length;
-      ta.selectionEnd = start + before.length + 4; // select 'text'
-    } else {
-      ta.selectionStart = start;
-      ta.selectionEnd = start + replacement.length;
-    }
-    ta.focus();
-    ta.dispatchEvent(new Event('input'));
-  };
-
-  window.fmtLine = function(prefix) {
-    const ta = document.getElementById('nw-agent-input');
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const text = ta.value;
-    // Find the start of the current line
-    const lineStart = text.lastIndexOf('\n', start - 1) + 1;
-    ta.value = text.substring(0, lineStart) + prefix + text.substring(lineStart);
-    ta.selectionStart = ta.selectionEnd = start + prefix.length;
-    ta.focus();
-    ta.dispatchEvent(new Event('input'));
-  };
-
-  window.fmtLink = function() {
-    const ta = document.getElementById('nw-agent-input');
-    if (!ta) return;
-    const start = ta.selectionStart;
-    const end = ta.selectionEnd;
-    const text = ta.value;
-    const selected = text.substring(start, end);
-    const url = prompt('Enter URL:', 'https://');
-    if (!url) return;
-    const linkText = selected || 'link text';
-    const replacement = '[' + linkText + '](' + url + ')';
-    ta.value = text.substring(0, start) + replacement + text.substring(end);
-    ta.selectionStart = start;
-    ta.selectionEnd = start + replacement.length;
-    ta.focus();
-    ta.dispatchEvent(new Event('input'));
-  };
-
   // ═══════════════════════════════════════
   // Emoji Picker
   // ═══════════════════════════════════════
@@ -496,15 +442,19 @@
   }
 
   function parseMarkdown(text) {
-    let html = escapeHtml(text || '');
-    // Bold
+    let html = text || '';
+    // Optional: strip script tags for safety
+    html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
+    
+    // Convert remaining markdown (for backwards compatibility with old messages)
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-    // Italic
     html = html.replace(/_(.*?)_/g, '<em>$1</em>');
-    // Embedded Base64 Images ![alt](data:image...)
     html = html.replace(/!\[([^\]]*)\]\((data:image\/[^;]+;base64,[a-zA-Z0-9+/=]+)\)/g, '<img src="$2" alt="$1" class="max-w-full rounded-lg mt-2 shadow-md border border-white/10">');
-    // Newlines
-    html = html.replace(/\n/g, '<br>');
+    // We no longer blindly replace \n with <br> because the WYSIWYG editor creates <br> or <div> automatically.
+    // But for old plain text messages, we still need it.
+    if (!/<[a-z][\s\S]*>/i.test(html)) {
+      html = html.replace(/\n/g, '<br>');
+    }
     return html;
   }
   function formatTime(isoString) {
@@ -538,28 +488,33 @@
   let lastEscalationsHash = '';
 
   async function fetchEscalations() {
-    const data = await dbSelect('escalations', '*', {}, { column: 'created_at', ascending: false });
-    
-    // Deduplicate by conversation_id (in case of missing PK constraints causing duplicate inserts)
-    const uniqueMap = new Map();
-    (data || []).forEach(e => {
-      if (!uniqueMap.has(e.conversation_id)) {
-        uniqueMap.set(e.conversation_id, e);
+    try {
+      const data = await dbSelect('escalations', '*', {}, { column: 'created_at', ascending: false });
+      
+      // Deduplicate by conversation_id (in case of missing PK constraints causing duplicate inserts)
+      const uniqueMap = new Map();
+      (data || []).forEach(e => {
+        if (!uniqueMap.has(e.conversation_id)) {
+          uniqueMap.set(e.conversation_id, e);
+        }
+      });
+      const newData = Array.from(uniqueMap.values());
+      
+      // Smart diff: only re-render if data actually changed
+      const newHash = JSON.stringify(newData.map(e => e.conversation_id + '|' + e.status + '|' + (e.chat_history || '').length + '|' + (e.user_name || '') + '|' + (e.user_email || '')));
+      if (newHash === lastEscalationsHash) return; // No change — skip re-render
+      lastEscalationsHash = newHash;
+      
+      escalations = newData;
+      renderSidebar();
+      
+      if (selectedConvId) {
+        const current = escalations.find(e => e.conversation_id === selectedConvId);
+        if (current) refreshMessagesOnly(current);
       }
-    });
-    const newData = Array.from(uniqueMap.values());
-    
-    // Smart diff: only re-render if data actually changed
-    const newHash = JSON.stringify(newData.map(e => e.conversation_id + '|' + e.status + '|' + (e.chat_history || '').length + '|' + (e.user_name || '') + '|' + (e.user_email || '')));
-    if (newHash === lastEscalationsHash) return; // No change — skip re-render
-    lastEscalationsHash = newHash;
-    
-    escalations = newData;
-    renderSidebar();
-    
-    if (selectedConvId) {
-      const current = escalations.find(e => e.conversation_id === selectedConvId);
-      if (current) refreshMessagesOnly(current);
+    } finally {
+      if (pollInterval) clearTimeout(pollInterval);
+      pollInterval = setTimeout(fetchEscalations, 5000);
     }
   }
 
@@ -868,20 +823,20 @@
     
     // Reset composer to reply mode
     setComposerMode('reply');
-    input.value = '';
+    input.innerHTML = '';
     send.disabled = true;
     
     if (!canReply) {
-      input.disabled = true;
-      input.placeholder = esc.assigned_agent_id ? "Assigned to another agent." : "Claim this ticket to reply.";
+      input.contentEditable = 'false';
+      input.setAttribute('placeholder', esc.assigned_agent_id ? "Assigned to another agent." : "Claim this ticket to reply.");
       composerBox.classList.add('opacity-50', 'pointer-events-none');
     } else {
-      input.disabled = false;
-      input.placeholder = "Shift + enter for new line. Start with '/' for Canned Response.";
+      input.contentEditable = 'true';
+      input.setAttribute('placeholder', "Shift + enter for new line. Select text and click tools above to format.");
       composerBox.classList.remove('opacity-50', 'pointer-events-none');
     }
     
-    input.oninput = () => { send.disabled = !input.value.trim() && !currentAttachedImage; };
+    input.oninput = () => { send.disabled = !input.textContent.trim() && !currentAttachedImage; };
     input.onkeydown = (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -1104,9 +1059,9 @@
   }
 
   async function savePrivateNote(convId, inputEl) {
-    const text = inputEl.value.trim();
-    if (!text) return;
-    inputEl.value = '';
+    const text = inputEl.innerHTML.trim();
+    if (!text || text === '<br>') return;
+    inputEl.innerHTML = '';
     document.getElementById('nw-agent-send').disabled = true;
 
     // Attach the escalated user's email to the note
@@ -1140,11 +1095,11 @@
   }
 
   async function sendAgentReply(convId, inputEl, msgContainer) {
-    let text = inputEl.value.trim();
-    if (!text && !currentAttachedImage) return;
+    let text = inputEl.innerHTML.trim();
+    if ((!text || text === '<br>') && !currentAttachedImage) return;
     
     if (currentAttachedImage) {
-      text = text ? text + `\n\n![Attached Image](${currentAttachedImage})` : `![Attached Image](${currentAttachedImage})`;
+      text = text ? text + `<br><br><img src="${currentAttachedImage}" alt="Attached Image" class="max-w-full rounded-lg mt-2 shadow-md border border-white/10">` : `<img src="${currentAttachedImage}" alt="Attached Image" class="max-w-full rounded-lg mt-2 shadow-md border border-white/10">`;
       currentAttachedImage = null;
       if (fileLabel) {
         fileLabel.classList.remove('text-primary');
@@ -1152,7 +1107,7 @@
       }
       if (fileInput) fileInput.value = '';
     }
-    inputEl.value = '';
+    inputEl.innerHTML = '';
     document.getElementById('nw-agent-send').disabled = true;
     
     const latestEsc = escalations.find(e => e.conversation_id === convId);
@@ -1338,11 +1293,8 @@
       // Fetch agents list for dropdown
       fetchAgents();
       
-      // Start fetching escalations
+      // Start fetching escalations (it uses recursive setTimeout internally now)
       fetchEscalations();
-      if (!pollInterval) {
-        pollInterval = setInterval(fetchEscalations, 5000);
-      }
       
       if (loadingScreen) {
         loadingScreen.classList.add('opacity-0');
