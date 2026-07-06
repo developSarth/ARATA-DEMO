@@ -882,13 +882,17 @@
   // §0.2 — Parse markdown (bold, italic, links, newlines) then sanitize
   function parseWidgetMarkdown(text) {
     if (!text) return '';
-    let html = escapeHtml(text);
+    let html = text;
+    // Optional: strip script tags for safety
+    html = html.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "");
     // Bold: **text** → <strong>text</strong>
     html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
     // Italic: _text_ → <em>text</em>
     html = html.replace(/_(.*?)_/g, '<em>$1</em>');
-    // Newlines
-    html = html.replace(/\n/g, '<br>');
+    // Newlines only if no HTML is present
+    if (!/<[a-z][\s\S]*>/i.test(html)) {
+      html = html.replace(/\n/g, '<br>');
+    }
     return html;
   }
 
@@ -1122,7 +1126,7 @@
     // Fix: Initialize count from chatHistory to prevent duplicate renders on page reload
     lastAgentMsgCount = chatHistory.filter(m => m.role === 'agent').length;
     
-    agentPollInterval = setInterval(async () => {
+    async function poll() {
       try {
         // §5 — Defense-in-depth: explicitly exclude private notes from the REST query
         const query = 'conversation_id=eq.' + conversationId + '&role=eq.agent&is_private=eq.false&order=created_at.asc';
@@ -1155,8 +1159,13 @@
         }
       } catch (err) {
         console.error('[Noa] Agent poll error:', err);
+      } finally {
+        if (agentPollInterval) clearTimeout(agentPollInterval);
+        agentPollInterval = setTimeout(poll, 5000); // Poll every 5 seconds securely
       }
-    }, 5000); // Poll every 5 seconds (Supabase REST, no n8n executions)
+    }
+    
+    poll(); // Initial call starts the recursive timeout
   }
 
   // ── Helper: Ensure New Conversation Button ──
