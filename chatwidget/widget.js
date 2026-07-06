@@ -52,8 +52,8 @@
       display: flex; align-items: center; justify-content: center;
       font-weight: 700; font-size: 11px; text-transform: uppercase;
     }
-    .noa-header-info { flex: 1; }
-    .noa-header-info h4 { color: #fff; font-size: 14px; font-weight: 600; margin: 0; }
+    .noa-header-info { flex: 1; text-align: left; }
+    .noa-header-info h4 { color: #fff; font-size: 14px; font-weight: 600; margin: 0; text-align: left; }
     .noa-header-status { color: rgba(255,255,255,0.7); font-size: 11px; display: flex; align-items: center; gap: 5px; }
     .noa-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #2ECC71; display: inline-block; }
     .noa-close-btn {
@@ -74,12 +74,12 @@
     .noa-msg-user {
       align-self: flex-end; background: #2D4030; color: #fff;
       border-radius: 16px 16px 4px 16px; padding: 10px 14px;
-      max-width: 82%; font-size: 13.5px; line-height: 1.55;
+      max-width: 82%; font-size: 13.5px; line-height: 1.55; text-align: left;
     }
     .noa-msg-bot {
       align-self: flex-start; background: #fff; color: #1a1a1a;
       border-radius: 16px 16px 16px 4px; padding: 10px 14px;
-      max-width: 82%; font-size: 13.5px; line-height: 1.55;
+      max-width: 82%; font-size: 13.5px; line-height: 1.55; text-align: left;
       box-shadow: 0 1px 4px rgba(0,0,0,0.06); border: 1px solid rgba(0,0,0,0.04);
     }
     .noa-msg-attachment { margin-top: 8px; border-radius: 8px; overflow: hidden; max-width: 200px; }
@@ -150,18 +150,24 @@
 
     /* Product Tiles */
     .noa-product-tiles-wrapper {
-      display: flex; flex-direction: column;
-      align-self: flex-start; max-width: 280px; margin-top: 8px;
+      display: flex; flex-direction: row; gap: 12px;
+      overflow-x: auto; overflow-y: hidden; padding-bottom: 8px; scrollbar-width: none; /* Firefox */
+      -ms-overflow-style: none; /* IE and Edge */
+      align-self: flex-start; width: 100%; max-width: 280px; margin-top: 8px;
+      min-height: 250px; /* Force height to prevent flex collapse */
     }
+    .noa-product-tiles-wrapper::-webkit-scrollbar { display: none; /* WebKit (Chrome, Safari, Edge) */ }
+    
     .noa-product-tile {
       display: flex; flex-direction: column;
       background: #fff; border-radius: 12px; overflow: hidden;
       border: 1px solid #E5E2DB; box-shadow: 0 4px 14px rgba(0,0,0,0.06);
       text-decoration: none; color: inherit; cursor: pointer;
+      flex: 0 0 auto; width: 210px; min-width: 210px;
+      height: 240px; min-height: 240px; /* Force tile height */
       transition: transform 0.3s ease, box-shadow 0.3s ease;
-      margin-bottom: 12px; animation: noaMsgSlideIn 0.3s ease forwards;
+      animation: noaMsgSlideIn 0.3s ease forwards;
     }
-    .noa-product-tile:last-child { margin-bottom: 0; }
     .noa-product-tile:hover {
       transform: translateY(-4px) scale(1.02);
       box-shadow: 0 10px 24px rgba(45,64,48,0.15); border-color: #2D4030;
@@ -346,10 +352,11 @@
 
   let isOpen = false;
   let pendingFile = null;
-  let conversationId = 'conv_' + crypto.randomUUID();
+  // §0.1 — Restore conversation from sessionStorage if it exists
+  let conversationId = sessionStorage.getItem('noa_conversation_id') || 'conv_' + crypto.randomUUID();
   let chatHistory = [];
   let isEscalated = false;
-  let isSessionCreated = false;
+  let isSessionCreated = sessionStorage.getItem('noa_session_created') === 'true';
   let agentPollInterval = null;
   let hasActiveSession = false; // Tracks if a session is already open
 
@@ -368,6 +375,46 @@
     return img;
   }
 
+  // §0.1 — Rehydrate an existing conversation from Supabase if sessionStorage has one
+  async function rehydrateSession() {
+    if (!isSessionCreated) return false;
+    try {
+      const rows = await supabaseSelect('escalations', 'conversation_id=eq.' + conversationId);
+      if (rows.length === 0) { clearSessionStorage(); return false; }
+      const esc = rows[0];
+      chatHistory = JSON.parse(esc.chat_history || '[]');
+      isEscalated = esc.status === 'escalated';
+      // Render saved messages
+      msgBody.innerHTML = '';
+      
+      // Fix 1: Ensure New Conversation button exists
+      ensureNewConvBtn();
+
+      chatHistory.forEach(msg => {
+        addBubble(msg.text, msg.role === 'user' ? 'user' : 'bot', null, false, msg.agent_name);
+      });
+      scrollToBottom();
+      startAgentReplyPolling();
+
+      const newConvBtn = document.querySelector('.noa-new-conv-btn');
+      if (newConvBtn) newConvBtn.style.display = 'block';
+
+      return true;
+    } catch (e) { console.error('[Noa] Rehydrate error:', e); return false; }
+  }
+
+  function clearSessionStorage() {
+    sessionStorage.removeItem('noa_conversation_id');
+    sessionStorage.removeItem('noa_session_created');
+    conversationId = 'conv_' + crypto.randomUUID();
+    isSessionCreated = false;
+  }
+
+  function persistSession() {
+    sessionStorage.setItem('noa_conversation_id', conversationId);
+    sessionStorage.setItem('noa_session_created', 'true');
+  }
+
   function toggleChat() {
     isOpen = !isOpen;
     widget.classList.toggle('noa-open', isOpen);
@@ -380,8 +427,11 @@
 
     if (isOpen) {
       if (!hasActiveSession) {
-        startFreshSession();
         hasActiveSession = true;
+        // Try to rehydrate, otherwise start fresh
+        rehydrateSession().then(restored => {
+          if (!restored) startFreshSession();
+        });
       }
       
       iconOpen.style.opacity = '0';
@@ -394,6 +444,10 @@
       iconOpen.style.transform = 'rotate(0deg)';
       iconClose.style.opacity = '0';
       iconClose.style.transform = 'rotate(-90deg)';
+      
+      if (!hasActiveSession) {
+        scheduleProactiveBubble();
+      }
     }
   }
 
@@ -410,10 +464,9 @@
   function startFreshSession(customWelcome = null) {
     if (proactiveTimer) { clearTimeout(proactiveTimer); proactiveTimer = null; }
     
-    conversationId = 'conv_' + crypto.randomUUID();
+    clearSessionStorage();
     chatHistory = [];
     isEscalated = false;
-    isSessionCreated = false;
     lastAgentMsgCount = 0;
     if (agentPollInterval) { clearInterval(agentPollInterval); agentPollInterval = null; }
     msgBody.innerHTML = '';
@@ -430,11 +483,13 @@
         <div class="noa-qr-chip">🚚 Shipping & Delivery</div>
         <div class="noa-qr-chip">🔄 Returns & Refunds</div>
         <div class="noa-qr-chip">🧴 Hair Care Tips</div>
-        <div class="noa-qr-chip">✨ Skin Care Routine</div>
       </div>
     `;
     msgBody.appendChild(qrWrap);
     scrollToBottom();
+
+    // §0.1 — "New Conversation" button for explicit reset
+    ensureNewConvBtn();
 
     const chips = qrWrap.querySelectorAll('.noa-qr-chip');
     chips.forEach(chip => {
@@ -661,7 +716,7 @@
   }
   sendBtn.addEventListener('click', sendMessage);
 
-  function addBubble(text, role, attachments, doScroll = true) {
+  function addBubble(text, role, attachments, doScroll = true, senderName = null) {
     const wrap = document.createElement('div');
     wrap.className = role === 'bot' ? 'noa-msg-bot noa-msg-animate' : 'noa-msg-user noa-msg-animate';
 
@@ -678,7 +733,13 @@
       const productNames = extractProductNames(cleanText);
       const displayText = cleanBotResponse(cleanText);
       
-      wrap.innerHTML = formatBotHtml(displayText);
+      let finalHtml = formatBotHtml(displayText);
+      // Prepend agent name if provided
+      if (senderName && senderName !== 'AI' && senderName !== 'Agent') {
+        finalHtml = `<div style="font-size: 10px; font-weight: 700; opacity: 0.8; margin-bottom: 6px; color: #166534; text-align: left;">${escapeHtml(senderName)}</div>` + finalHtml;
+      }
+      
+      wrap.innerHTML = finalHtml;
       msgBody.appendChild(wrap);
       
       if (productUrls.length > 0) {
@@ -818,14 +879,27 @@
     return clean.trim();
   }
 
+  // §0.2 — Parse markdown (bold, italic, links, newlines) then sanitize
+  function parseWidgetMarkdown(text) {
+    if (!text) return '';
+    let html = escapeHtml(text);
+    // Bold: **text** → <strong>text</strong>
+    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+    // Italic: _text_ → <em>text</em>
+    html = html.replace(/_(.*?)_/g, '<em>$1</em>');
+    // Newlines
+    html = html.replace(/\n/g, '<br>');
+    return html;
+  }
+
   function formatBotHtml(text) {
     if (!text) return '';
-    const raw = escapeHtml(text).replace(/\n/g, '<br>');
-    // Sanitize with DOMPurify if available (loaded asynchronously)
+    // §0.2 — Convert markdown FIRST, then sanitize (not the reverse)
+    const html = parseWidgetMarkdown(text);
     if (typeof DOMPurify !== 'undefined') {
-      return DOMPurify.sanitize(raw, { ALLOWED_TAGS: ['br', 'b', 'i', 'em', 'strong', 'a', 'p', 'span'], ALLOWED_ATTR: ['href', 'target', 'rel'] });
+      return DOMPurify.sanitize(html, { ALLOWED_TAGS: ['br', 'b', 'i', 'em', 'strong', 'a', 'p', 'span'], ALLOWED_ATTR: ['href', 'target', 'rel'] });
     }
-    return raw;
+    return html;
   }
 
   function renderProductTiles(productUrls, prices) {
@@ -931,9 +1005,9 @@
     
     wrap.innerHTML = `
       <p style="font-size: 14px; font-weight: 600; color: #111827; margin-bottom: 8px;">Please provide your details so we can reach out:</p>
-      <input type="text" id="esc-name" placeholder="Your Name" style="width: 100%; padding: 10px; margin-bottom: 8px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;">
-      <input type="email" id="esc-email" placeholder="Your Email" style="width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;">
-      <button id="esc-submit" style="width: 100%; padding: 10px; background: #000; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer;">Submit Details</button>
+      <input type="text" id="esc-name" placeholder="Your Name" style="box-sizing: border-box; width: 100%; padding: 10px; margin-bottom: 8px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;">
+      <input type="email" id="esc-email" placeholder="Your Email" style="box-sizing: border-box; width: 100%; padding: 10px; margin-bottom: 12px; border: 1px solid #D1D5DB; border-radius: 6px; font-size: 14px;">
+      <button id="esc-submit" style="box-sizing: border-box; width: 100%; padding: 10px; background: #000; color: #fff; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer;">Submit Details</button>
     `;
     
     msgBody.appendChild(wrap);
@@ -953,12 +1027,53 @@
       btn.innerText = 'Submitting...';
       btn.disabled = true;
       
-      await supabaseUpdate('escalations', 'conversation_id=eq.' + conversationId, {
+      // §6 — Race condition fix: if the initial insert hasn't completed, use upsert
+      const updateData = {
         user_name: name,
         user_email: email,
         status: 'escalated',
         escalated_at: new Date().toISOString()
-      });
+      };
+
+      if (!isSessionCreated) {
+        // Session row doesn't exist yet — create it with all data
+        const upsertData = {
+          conversation_id: conversationId,
+          ...updateData,
+          chat_history: JSON.stringify(chatHistory),
+          created_at: new Date().toISOString(),
+          brand: 'Arata'
+        };
+        try {
+          const res = await fetch(SUPABASE_URL + '/rest/v1/escalations', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'apikey': SUPABASE_KEY,
+              'Authorization': 'Bearer ' + SUPABASE_KEY,
+              'Prefer': 'resolution=merge-duplicates,return=representation'
+            },
+            body: JSON.stringify(upsertData)
+          });
+          if (res.ok) {
+            isSessionCreated = true;
+            persistSession();
+            startAgentReplyPolling();
+          }
+        } catch (err) {
+          console.error('[Noa] Escalation upsert failed:', err);
+          btn.innerText = 'Retry';
+          btn.disabled = false;
+          return;
+        }
+      } else {
+        const result = await supabaseUpdate('escalations', 'conversation_id=eq.' + conversationId, updateData);
+        if (!result) {
+          btn.innerText = 'Retry';
+          btn.disabled = false;
+          return;
+        }
+      }
       
       wrap.innerHTML = '<p style="font-size: 14px; font-weight: 500; color: #10B981; margin: 0; text-align: center;">Details submitted. Our team will contact you shortly.</p>';
       scrollToBottom();
@@ -987,7 +1102,11 @@
       const result = await supabaseInsert('escalations', rowData);
       if (result) {
         isSessionCreated = true;
-        startAgentReplyPolling(); // Start polling for agent replies immediately
+        persistSession(); // §0.1 — Save to sessionStorage
+        startAgentReplyPolling();
+        // Show the "New Conversation" button
+        const newConvBtn = document.querySelector('.noa-new-conv-btn');
+        if (newConvBtn) newConvBtn.style.display = 'block';
       }
     } else {
       await supabaseUpdate('escalations', 'conversation_id=eq.' + conversationId, rowData);
@@ -1000,22 +1119,38 @@
   function startAgentReplyPolling() {
     if (agentPollInterval) return; // Already polling
     
+    // Fix: Initialize count from chatHistory to prevent duplicate renders on page reload
+    lastAgentMsgCount = chatHistory.filter(m => m.role === 'agent').length;
+    
     agentPollInterval = setInterval(async () => {
       try {
-        const query = 'conversation_id=eq.' + conversationId + '&role=eq.agent&order=created_at.asc';
+        // §5 — Defense-in-depth: explicitly exclude private notes from the REST query
+        const query = 'conversation_id=eq.' + conversationId + '&role=eq.agent&is_private=eq.false&order=created_at.asc';
         const msgs = await supabaseSelect('agent_replies', query);
         
         if (msgs.length > lastAgentMsgCount) {
           // New agent messages arrived
-          for (let i = lastAgentMsgCount; i < msgs.length; i++) {
-            const agentMsg = msgs[i];
+          const newMsgs = msgs.slice(lastAgentMsgCount).filter(m => !m.is_private);
+          
+          if (newMsgs.length > 0) {
+            showTyping();
             
-            // Skip private notes!
-            if (agentMsg.is_private) continue;
-            
-            chatHistory.push({ role: 'agent', text: agentMsg.message, timestamp: agentMsg.created_at });
-            addBubble(agentMsg.message, 'bot');
+            setTimeout(() => {
+              removeTyping();
+              
+              newMsgs.forEach(agentMsg => {
+                chatHistory.push({ role: 'agent', text: agentMsg.message, timestamp: agentMsg.created_at, agent_name: agentMsg.agent_name });
+                addBubble(agentMsg.message, 'bot', null, true, agentMsg.agent_name);
+
+                // §1 — Update the chat header to show the real agent's name
+                if (agentMsg.agent_name) {
+                  const headerTitle = document.querySelector('.noa-header-info h4');
+                  if (headerTitle) headerTitle.textContent = agentMsg.agent_name;
+                }
+              });
+            }, 1000); // 1-second simulated typing delay
           }
+          
           lastAgentMsgCount = msgs.length;
         }
       } catch (err) {
@@ -1024,12 +1159,26 @@
     }, 5000); // Poll every 5 seconds (Supabase REST, no n8n executions)
   }
 
+  // ── Helper: Ensure New Conversation Button ──
+  function ensureNewConvBtn() {
+    let newConvBtn = document.querySelector('.noa-new-conv-btn');
+    if (!newConvBtn) {
+      newConvBtn = document.createElement('button');
+      newConvBtn.className = 'noa-new-conv-btn';
+      newConvBtn.textContent = '+ New Conversation';
+      newConvBtn.style.cssText = 'display:none; margin:8px auto; padding:6px 16px; background:#F7F5F0; border:1px solid #E5E2DB; border-radius:20px; font-size:11px; font-weight:600; color:#2D4030; cursor:pointer; transition:all 0.2s;';
+      newConvBtn.onmouseover = () => { newConvBtn.style.background = '#2D4030'; newConvBtn.style.color = '#fff'; };
+      newConvBtn.onmouseout = () => { newConvBtn.style.background = '#F7F5F0'; newConvBtn.style.color = '#2D4030'; };
+      newConvBtn.onclick = () => { startFreshSession(); };
+      msgBody.parentNode.insertBefore(newConvBtn, msgBody);
+    }
+  }
+
   // ── Initialize Proactive Floating Bubble ──
-  if (!sessionStorage.getItem('noa_proactive_shown')) {
+  function scheduleProactiveBubble() {
+    if (proactiveTimer) clearTimeout(proactiveTimer);
     proactiveTimer = setTimeout(() => {
       if (!hasActiveSession && !isOpen) {
-        sessionStorage.setItem('noa_proactive_shown', 'true');
-        
         const bubble = document.getElementById('noa-proactive-bubble');
         if (bubble) {
           bubble.classList.add('visible');
@@ -1037,5 +1186,7 @@
       }
     }, PROACTIVE_MSG_DELAY);
   }
+
+  scheduleProactiveBubble();
 
 })();

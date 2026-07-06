@@ -1,0 +1,46 @@
+��
+.noa-product-tiles-wrapper {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding-bottom: 8px;
+  scroll-snap-type: x mandatory;
+}
+.noa-product-tiles-wrapper > * {
+  scroll-snap-align: start;
+  flex: 0 0 auto;
+}
+.noa-product-tiles-wrapper::-webkit-scrollbar {
+  height: 6px;
+}
+.noa-product-tiles-wrapper::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+/* Fix the individual tiles so they don't shrink or stretch weirdly */
+.noa-product-tile {
+  width: 220px;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  overflow: hidden;
+  text-decoration: none;
+  transition: transform 0.2s, background 0.2s;
+}
+.noa-product-tile:hover {
+  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.1);
+}
+.noa-product-tiles-wrapper {
+  display: flex;
+  overflow-x: auto;
+  gap: 12px;
+  padding-bottom: 12px;
+  max-width: 100%;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: thin;
+}
